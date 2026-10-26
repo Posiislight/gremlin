@@ -1,3 +1,12 @@
 export { normalizePath, stateHash, sameOrigin } from './url.js';
 export { observe, estimateTokens } from './observe.js';
 export type { Interactable, Observation, ObserveOptions } from './observe.js';
+export { settle } from './settle.js';
+export type { SettleOptions } from './settle.js';
+export { computeLocator, resolveLocator } from './locator.js';
+export { resolvePlaceholders, redact } from './secrets.js';
+export { installPolicy } from './policy.js';
+export type { PolicyOptions } from './policy.js';
+export { dismissConsent } from './consent.js';
+export { execute } from './execute.js';
+export type { ExecContext, ExecResult } from './execute.js';

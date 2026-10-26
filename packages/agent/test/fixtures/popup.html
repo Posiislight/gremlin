@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><title>Popup fixture</title></head>
+<body>
+<main>
+  <a href="/empty.html" target="_blank">Open same-origin</a>
+  <button id="off" data-origin-swap="1">Open off-origin</button>
+</main>
+<script>
+  document.getElementById('off').addEventListener('click', () => {
+    const u = new URL(location.href);
+    u.hostname = 'localhost';
+    u.pathname = '/empty.html';
+    window.open(u.href, '_blank');
+  });
+</script>
+</body></html>
