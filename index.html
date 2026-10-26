@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>gremlin — browser QA that gets sharper every run</title>
+  <meta name="description" content="gremlin is a self-improving browser agent. Give it a charter in plain English. It hunts real bugs, records replayable evidence, and turns every run into a better test suite." />
+  <meta name="theme-color" content="#08090b" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="gremlin — browser QA that gets sharper every run" />
+  <meta property="og:description" content="A self-improving browser agent that finds real bugs, remembers what worked, and compounds into a test suite you never had to write." />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <div class="backdrop" aria-hidden="true">
+    <div class="backdrop__grid"></div>
+    <div class="backdrop__glow" id="spotlight"></div>
+    <div class="backdrop__noise"></div>
+  </div>
+
+  <header class="site-header">
+    <nav class="nav container" aria-label="Main">
+      <a class="brand" href="/" aria-label="gremlin home">
+        <svg class="brand__mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <path d="M6 5.5 9.5 14M26 5.5 22.5 14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M16 9c5 0 9 3.6 9 8.4 0 4.4-3.4 7.6-9 7.6s-9-3.2-9-7.6C7 12.6 11 9 16 9Z" stroke="currentColor" stroke-width="2.2"/>
+          <circle cx="12.6" cy="17" r="1.5" fill="currentColor"/>
+          <circle cx="19.4" cy="17" r="1.5" fill="currentColor"/>
+          <path d="M13 21.2c1.8 1.1 4.2 1.1 6 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+        <span class="brand__name">gremlin</span>
+      </a>
+
+      <div class="nav__links" id="nav-links">
+        <a href="#how">How it works</a>
+        <a href="#features">Features</a>
+        <a href="#start">Quickstart</a>
+        <a href="#compare">Why gremlin</a>
+      </div>
+
+      <div class="nav__actions">
+        <a class="btn btn--ghost nav__github" href="https://github.com/Posiislight/gremlin" target="_blank" rel="noreferrer">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+          </svg>
+          GitHub
+        </a>
+        <a class="btn btn--primary nav__cta" href="#early-access">Get early access</a>
+        <button class="nav__toggle" id="nav-toggle" aria-expanded="false" aria-controls="nav-links" aria-label="Toggle navigation">
+          <span></span><span></span>
+        </button>
+      </div>
+    </nav>
+  </header>
+
+  <main id="main">
+    <!-- Hero -->
+    <section class="hero container">
+      <div class="hero__copy">
+        <p class="eyebrow reveal">
+          <span class="pulse" aria-hidden="true"></span>
+          Built at OpenFire 2026
+        </p>
+        <h1 class="hero__title reveal">
+          Browser QA that<br />
+          gets <em>sharper</em> every run.
+        </h1>
+        <p class="hero__lede reveal">
+          gremlin is a self-improving browser agent. Hand it a charter in plain
+          English. It hunts real bugs, captures replayable evidence, and turns
+          every win — and every dead end — into a test suite you never had to write.
+        </p>
+        <div class="hero__actions reveal">
+          <a class="btn btn--primary btn--lg" href="#early-access">
+            Get early access
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true"><path d="M3 8h9m0 0L8.5 4.5M12 8l-3.5 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <a class="btn btn--ghost btn--lg" href="#how">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M5 3.5v9l7-4.5-7-4.5Z"/></svg>
+            See a run
+          </a>
+        </div>
+        <p class="hero__hint reveal">
+          <code>npx gremlin run ./charters/checkout.md</code>
+        </p>
+      </div>
+
+      <div class="hero__demo reveal" aria-hidden="true">
+        <div class="terminal" id="terminal">
+          <div class="terminal__bar">
+            <span class="dot dot--red"></span>
+            <span class="dot dot--amber"></span>
+            <span class="dot dot--green"></span>
+            <span class="terminal__title">gremlin — live run</span>
+            <span class="terminal__badge">rec</span>
+          </div>
+          <pre class="terminal__body" id="terminal-body"></pre>
+          <div class="terminal__footer">
+            <span class="terminal__stat">heuristics <b id="heuristic-count">42</b></span>
+            <span class="terminal__stat">run <b id="run-count">1,208</b></span>
+            <span class="terminal__stat terminal__stat--ok"><span class="pulse"></span>passing</span>
+          </div>
+        </div>
+
+        <div class="float-card float-card--a">
+          <span class="float-card__label">bug found</span>
+          <strong>coupon accepts negative totals</strong>
+          <span class="float-card__meta">repro 3/3 · video + DOM</span>
+        </div>
+        <div class="float-card float-card--b">
+          <span class="float-card__label">new heuristic</span>
+          <strong>checkout.coupons.negative</strong>
+          <span class="float-card__meta">learned 12s ago</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Metrics -->
+    <section class="metrics container reveal" aria-label="Results">
+      <div class="metric">
+        <span class="metric__value">62<span>%</span></span>
+        <span class="metric__label">faster on repeat runs</span>
+      </div>
+      <div class="metric">
+        <span class="metric__value">3<span>×</span></span>
+        <span class="metric__label">fewer flaky failures</span>
+      </div>
+      <div class="metric">
+        <span class="metric__value">0</span>
+        <span class="metric__label">test files to maintain</span>
+      </div>
+      <div class="metric">
+        <span class="metric__value">100<span>%</span></span>
+        <span class="metric__label">of bugs come with a replay</span>
+      </div>
+    </section>
+
+    <!-- Problem -->
+    <section class="problem container" id="why">
+      <div class="problem__copy reveal">
+        <p class="section-kicker">The problem</p>
+        <h2>Agents are forgetful.<br />Your bugs are not.</h2>
+      </div>
+      <div class="problem__body reveal">
+        <p>
+          Most browser agents start from zero on every run. They rediscover the
+          same checkout, retry the same flaky selector, and hand you a bug report
+          you can't reproduce. The work never compounds.
+        </p>
+        <p>
+          gremlin keeps a memory. What it learns on Monday is load-bearing on
+          Tuesday — so coverage grows while effort per run falls.
+        </p>
+        <ul class="problem__list">
+          <li><span class="x" aria-hidden="true"></span> Rediscovering the same flows every run</li>
+          <li><span class="x" aria-hidden="true"></span> Screenshots with no steps, logs, or replay</li>
+          <li><span class="x" aria-hidden="true"></span> Selectors that shatter on every deploy</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section class="how container" id="how">
+      <div class="section-head reveal">
+        <p class="section-kicker">How it works</p>
+        <h2>Charter in. Test suite out.</h2>
+        <p class="section-sub">
+          Three loops, running at once. The agent explores, the recorder proves it,
+          and the memory turns repetition into leverage.
+        </p>
+      </div>
+
+      <div class="steps">
+        <article class="step reveal">
+          <div class="step__top">
+            <span class="step__num">01</span>
+            <span class="step__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M4 6.5h11M4 12h16M4 17.5h9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </span>
+          </div>
+          <h3>Charter</h3>
+          <p>Describe the job, not the CSS. “Checkout with a saved card, a coupon, and a shipping estimate.” That's the entire spec.</p>
+          <span class="step__tag">plain English</span>
+        </article>
+
+        <article class="step reveal">
+          <div class="step__top">
+            <span class="step__num">02</span>
+            <span class="step__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.7"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </span>
+          </div>
+          <h3>Hunt</h3>
+          <p>The agent drives a real browser, poking at edges: empty states, bad input, interrupted flows. Every finding ships with video, DOM, network, and exact repro steps.</p>
+          <span class="step__tag">replayable evidence</span>
+        </article>
+
+        <article class="step reveal">
+          <div class="step__top">
+            <span class="step__num">03</span>
+            <span class="step__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v4m0 10v4M3 12h4m10 0h4M5.6 5.6l2.8 2.8m7.2 7.2 2.8 2.8m0-12.8-2.8 2.8M8.4 15.6l-2.8 2.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/></svg>
+            </span>
+          </div>
+          <h3>Learn</h3>
+          <p>Wins become heuristics. Dead ends become negative checks. The next run starts from everything the last one figured out — and you approve what sticks.</p>
+          <span class="step__tag">compounding memory</span>
+        </article>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="features container" id="features">
+      <div class="section-head reveal">
+        <p class="section-kicker">Under the hood</p>
+        <h2>An agent with an actual memory.</h2>
+      </div>
+
+      <div class="feature-grid">
+        <article class="feature feature--wide reveal">
+          <div class="feature__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3 4 6.5v5.2c0 4.5 3.4 8.1 8 9.3 4.6-1.2 8-4.8 8-9.3V6.5L12 3Z" stroke="currentColor" stroke-width="1.6"/><path d="m8.6 12 2.3 2.3 4.6-4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <h3>Persistent heuristics</h3>
+          <p>
+            Every verified finding is written as a named, versionable rule —
+            <code>checkout.coupons.negative</code> — so it's inspectable in review,
+            diffable in git, and portable across branches.
+          </p>
+          <pre class="feature__code"><code id="heuristic-snippet"></code></pre>
+        </article>
+
+        <article class="feature reveal">
+          <div class="feature__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M7 9.5h4M7 13h7M7 16.5h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="17" cy="9.5" r="1.4" fill="currentColor"/></svg>
+          </div>
+          <h3>Evidence, not vibes</h3>
+          <p>Video, trace, network log and a runnable repro attached to every bug. If it isn't replayable, it isn't filed.</p>
+        </article>
+
+        <article class="feature reveal">
+          <div class="feature__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M13 3 5 13h6l-1 8 8-10h-6l1-8Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </div>
+          <h3>Self-healing selectors</h3>
+          <p>When the DOM shifts, gremlin re-anchors on intent and role instead of brittle class names. UI refactors stop breaking the suite.</p>
+        </article>
+
+        <article class="feature reveal">
+          <div class="feature__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M8 5 4 12l4 7M16 5l4 7-4 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <h3>CI native</h3>
+          <p>One command, JUnit and JSON output, inline PR annotations. Runs against preview deploys, not just localhost.</p>
+        </article>
+
+        <article class="feature reveal">
+          <div class="feature__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M16 7.5h5M18.5 5v5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </div>
+          <h3>Human in the loop</h3>
+          <p>New heuristics land as proposals. Approve, edit, or reject them before they become policy on your default branch.</p>
+        </article>
+
+        <article class="feature reveal">
+          <div class="feature__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5 14.2 9l5.8.4-4.5 3.7 1.5 5.6-5-3.1-5 3.1 1.5-5.6L4 9.4 9.8 9 12 3.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </div>
+          <h3>Model agnostic</h3>
+          <p>Bring your own model and browser. gremlin owns the loop, the memory, and the evidence format — not your vendor.</p>
+        </article>
+
+        <article class="feature reveal">
+          <div class="feature__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4.5 8.5v7M19.5 8.5v7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M8 6.5h8a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 16V8A1.5 1.5 0 0 1 8 6.5Z" stroke="currentColor" stroke-width="1.6"/><path d="m10.8 12.2 1.6 1.6 3-3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <h3>Deterministic replays</h3>
+          <p>Each finding replays step-for-step against the same build, so a passing fix is provable — not a lucky green run.</p>
+        </article>
+
+        <article class="feature reveal">
+          <div class="feature__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h8L19 8v12.5H6.5V3.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 3.5V8h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.5 12h6M9.5 15.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </div>
+          <h3>Charters as docs</h3>
+          <p>Charters are plain Markdown in your repo — reviewable by PMs and engineers, and versioned alongside the code they cover.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- Quickstart -->
+    <section class="start" id="start">
+      <div class="container start__inner">
+        <div class="start__copy reveal">
+          <p class="section-kicker">Quickstart</p>
+          <h2>Point it at a preview deploy.</h2>
+          <p>
+            Write a charter in Markdown, run one command, and get a replayable
+            report. No page objects. No fixture maintenance. No framework to adopt.
+          </p>
+          <ul class="start__list">
+            <li>Works with Playwright, Chrome, or a remote grid</li>
+            <li>Heuristics live in <code>.gremlin/</code> — commit them like code</li>
+            <li>Runs locally, in CI, or on a schedule</li>
+          </ul>
+          <a class="btn btn--ghost" href="https://github.com/Posiislight/gremlin" target="_blank" rel="noreferrer">
+            Read the docs
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true"><path d="M3 8h9m0 0L8.5 4.5M12 8l-3.5 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+        </div>
+
+        <div class="start__terminal reveal">
+          <div class="terminal terminal--static">
+            <div class="terminal__bar">
+              <span class="dot dot--red"></span>
+              <span class="dot dot--amber"></span>
+              <span class="dot dot--green"></span>
+              <span class="terminal__title">~/acme-store</span>
+            </div>
+            <pre class="terminal__body"><span class="c-dim"># charters/checkout.md</span>
+<span class="c-key">A returning customer</span> checks out with a saved card and adds
+the coupon <span class="c-str">"LAUNCH20"</span>. They should see the discounted total
+and a delivery estimate before paying.
+
+<span class="c-dim"># run it</span>
+<span class="c-prompt">$</span> npx gremlin run charters/checkout.md
+
+<span class="c-ok">✓</span> memory loaded     <span class="c-dim">214 heuristics</span>
+<span class="c-ok">✓</span> plan built        <span class="c-dim">8 steps · 1.2s</span>
+<span class="c-warn">!</span> finding filed     <span class="c-dim">checkout.total-negative</span>
+<span class="c-ok">✓</span> heuristic saved   <span class="c-dim">checkout.total-negative</span>
+
+<span class="c-dim">report:</span> .gremlin/runs/2026-10-26-1842/
+<span class="c-ok">1 bug · 7 passed · replay attached</span></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Compare -->
+    <section class="compare container" id="compare">
+      <div class="section-head reveal">
+        <p class="section-kicker">Why gremlin</p>
+        <h2>Stop paying for the same discovery twice.</h2>
+      </div>
+
+      <div class="compare__grid">
+        <div class="compare__col compare__col--old reveal">
+          <h3>Typical browser agent</h3>
+          <ul>
+            <li><span class="x" aria-hidden="true"></span> Starts from zero every run</li>
+            <li><span class="x" aria-hidden="true"></span> Forgets the paths it already proved</li>
+            <li><span class="x" aria-hidden="true"></span> Files screenshots without repro steps</li>
+            <li><span class="x" aria-hidden="true"></span> Cost per run stays flat forever</li>
+            <li><span class="x" aria-hidden="true"></span> Learns nothing between deploys</li>
+          </ul>
+        </div>
+        <div class="compare__col compare__col--new reveal">
+          <h3><span class="brand__name">gremlin</span></h3>
+          <ul>
+            <li><span class="check" aria-hidden="true"></span> Loads its memory before it plans</li>
+            <li><span class="check" aria-hidden="true"></span> Compounds coverage run over run</li>
+            <li><span class="check" aria-hidden="true"></span> Every bug ships with a replay</li>
+            <li><span class="check" aria-hidden="true"></span> Repeat runs get cheaper and faster</li>
+            <li><span class="check" aria-hidden="true"></span> Improves without a rewrite</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta container" id="early-access">
+      <div class="cta__card reveal">
+        <div class="cta__glow" aria-hidden="true"></div>
+        <p class="section-kicker">Early access</p>
+        <h2>Give it a mess.<br />Get back a test suite.</h2>
+        <p class="cta__sub">
+          We're onboarding a small group of teams during OpenFire. Drop your email
+          and we'll send a charter pack plus access to the hosted runner.
+        </p>
+        <form class="cta__form" id="access-form" novalidate>
+          <label class="sr-only" for="email">Work email</label>
+          <input id="email" name="email" type="email" placeholder="you@company.com" autocomplete="email" required />
+          <button class="btn btn--primary" type="submit">Request access</button>
+        </form>
+        <p class="cta__note" id="form-note" role="status" aria-live="polite">
+          No spam. One email when your invite is ready.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer__inner">
+      <div class="footer__brand">
+        <a class="brand" href="/" aria-label="gremlin home">
+          <svg class="brand__mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <path d="M6 5.5 9.5 14M26 5.5 22.5 14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+            <path d="M16 9c5 0 9 3.6 9 8.4 0 4.4-3.4 7.6-9 7.6s-9-3.2-9-7.6C7 12.6 11 9 16 9Z" stroke="currentColor" stroke-width="2.2"/>
+            <circle cx="12.6" cy="17" r="1.5" fill="currentColor"/>
+            <circle cx="19.4" cy="17" r="1.5" fill="currentColor"/>
+            <path d="M13 21.2c1.8 1.1 4.2 1.1 6 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <span class="brand__name">gremlin</span>
+        </a>
+        <p>Self-improving browser QA.<br />Built at OpenFire 2026.</p>
+      </div>
+
+      <div class="footer__links">
+        <div>
+          <h4>Product</h4>
+          <a href="#how">How it works</a>
+          <a href="#features">Features</a>
+          <a href="#start">Quickstart</a>
+        </div>
+        <div>
+          <h4>Resources</h4>
+          <a href="https://github.com/Posiislight/gremlin" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="#early-access">Early access</a>
+          <a href="#compare">Why gremlin</a>
+        </div>
+      </div>
+
+      <div class="footer__meta">
+        <span class="status"><span class="pulse"></span> All systems nominal</span>
+        <span>© 2026 gremlin</span>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
