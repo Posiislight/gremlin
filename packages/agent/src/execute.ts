@@ -4,15 +4,26 @@ import type { Action, Locator, StepOutcome } from '@gremlin/contract';
 import { computeLocator } from './locator.js';
 import { redact, resolvePlaceholders } from './secrets.js';
 import { trackRequests } from './settle.js';
+import { clickScopes } from './context.js';
 
-export type ExecContext = { secrets: Record<string, string>; origin: string; fixturesDir: string };
+export type ExecContext = {
+  secrets: Record<string, string>;
+  origin: string;
+  fixturesDir: string;
+  /** Policy handle from installPolicy/createAgentContext; lets execute() report `blocked_by_policy`. */
+  policy?: { count(): number } | null;
+};
 export type ExecResult = { outcome: StepOutcome; locator: Locator | null; error?: string };
 
 const ACTION_TIMEOUT = 5000;
 const POPUP_WAIT_MS = 400;
 // A link that declares target=_blank is certain to open a popup, so wait longer for it (slow machines).
 const POPUP_LINK_WAIT_MS = 3000;
-const BLANK_LINK_SRC = `(el) => { const a = el.closest('a[target]'); return !!a && !['_self', '_parent', '_top', ''].includes(a.target); }`;
+// Built in Node, serialised by Playwright (no eval inside the page; see locator.ts).
+const declaresBlankTarget = new Function(
+  'el',
+  `const a = el.closest('a[target]'); return !!a && !['_self', '_parent', '_top', ''].includes(a.target);`,
+) as (el: unknown) => boolean;
 
 function fail(error: string): ExecResult {
   return { outcome: 'error', locator: null, error };
@@ -33,8 +44,9 @@ async function clickWithPopups(page: Page, handle: ElementHandle, ctx: ExecConte
     wake?.();
   };
   context.on('page', onPage);
+  clickScopes.set(context, (clickScopes.get(context) ?? 0) + 1);
   try {
-    const declaresBlank = await handle.evaluate((el, src) => (0, eval)(src)(el), BLANK_LINK_SRC).catch(() => false);
+    const declaresBlank = await handle.evaluate(declaresBlankTarget as never).catch(() => false);
     await handle.click({ timeout: ACTION_TIMEOUT });
     if (opened.length === 0) {
       await new Promise<void>((resolveWait) => {
@@ -48,7 +60,7 @@ async function clickWithPopups(page: Page, handle: ElementHandle, ctx: ExecConte
     for (const popup of opened) {
       let target = '';
       try {
-        await popup.waitForURL((u) => u.href !== 'about:blank', { timeout: 3000, waitUntil: 'domcontentloaded' });
+        await popup.waitForURL((u) => u.href !== 'about:blank', { timeout: 2000, waitUntil: 'domcontentloaded' });
         target = popup.url();
       } catch {
         /* never loaded; just close it */
@@ -59,6 +71,7 @@ async function clickWithPopups(page: Page, handle: ElementHandle, ctx: ExecConte
       }
     }
   } finally {
+    clickScopes.set(context, (clickScopes.get(context) ?? 1) - 1);
     context.off('page', onPage);
   }
 }
@@ -76,7 +89,34 @@ function insideDir(dir: string, file: string): boolean {
   return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
+/**
+ * Drop locator candidates that contain a secret value (>= 3 chars): persona emails in accessible names,
+ * typed text echoed into editors, etc. The field is removed, not redacted, so the stored locator never
+ * carries the secret; resolution falls through to the remaining candidates / css.
+ */
+function scrubLocator(loc: Locator, secrets: Record<string, string>): Locator {
+  const vals = Object.values(secrets).filter((v) => v.length >= 3);
+  const leaks = (s: string | undefined) => !!s && vals.some((v) => s.includes(v) || s.toLowerCase().includes(v.toLowerCase()));
+  const out: Locator = { css: loc.css };
+  if (loc.testId && !leaks(loc.testId)) out.testId = loc.testId;
+  if (loc.role && !leaks(loc.role.name)) out.role = loc.role;
+  if (loc.label && !leaks(loc.label)) out.label = loc.label;
+  if (loc.placeholder && !leaks(loc.placeholder)) out.placeholder = loc.placeholder;
+  if (loc.text && !leaks(loc.text)) out.text = loc.text;
+  return out;
+}
+
 export async function execute(page: Page, action: Action, ctx: ExecContext): Promise<ExecResult> {
+  const before = ctx.policy?.count() ?? 0;
+  const r = await executeInner(page, action, ctx);
+  if (!ctx.policy) return r;
+  await page.waitForTimeout(100).catch(() => undefined); // let in-flight route handlers record their abort
+  const n = ctx.policy.count() - before;
+  if (n > 0) return { outcome: 'blocked_by_policy', locator: r.locator, error: `blocked by policy (${n} request${n === 1 ? '' : 's'})` };
+  return r;
+}
+
+async function executeInner(page: Page, action: Action, ctx: ExecContext): Promise<ExecResult> {
   let resolvedText: string | null = null;
   trackRequests(page);
   try {
@@ -117,7 +157,7 @@ export async function execute(page: Page, action: Action, ctx: ExecContext): Pro
     // Ref-based actions.
     const handle = await findRef(page, action.ref);
     if (!handle) return fail(`ref ${action.ref} not found`);
-    const locator = await computeLocator(handle);
+    const locator = scrubLocator(await computeLocator(handle), ctx.secrets);
 
     switch (action.type) {
       case 'click':

@@ -45,8 +45,9 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-export async function startFixtureServer(): Promise<{ url: string; close(): Promise<void> }> {
+export async function startFixtureServer(host = '127.0.0.1'): Promise<{ url: string; close(): Promise<void> }> {
   let cartCalls = 0;
+  let hits = 0;
   const timers = new Set<NodeJS.Timeout>();
 
   const server = createServer((req, res) => {
@@ -61,8 +62,34 @@ export async function startFixtureServer(): Promise<{ url: string; close(): Prom
     const method = req.method ?? 'GET';
     const path = u.pathname;
 
+    // Permissive CORS so cross-origin fixture servers (127.0.0.1 vs 127.0.0.2) can be read by tests.
+    res.setHeader('access-control-allow-origin', '*');
+    if (method === 'OPTIONS') {
+      res.writeHead(204, { 'access-control-allow-methods': '*', 'access-control-allow-headers': '*' });
+      res.end();
+      return;
+    }
+    if (path === '/redirect') {
+      const status = Number(u.searchParams.get('status') ?? '302');
+      res.writeHead(status, { location: u.searchParams.get('to') ?? '/' });
+      res.end();
+      return;
+    }
+    if (method === 'POST' && path === '/api/hit') {
+      hits += 1;
+      return json(res, 200, { hits });
+    }
+    if (method === 'GET' && path === '/api/hits') return json(res, 200, { hits });
+    if (method === 'GET' && path === '/csp.html') {
+      const data = await readFile(join(FIXTURES, 'csp.html'));
+      res.writeHead(200, { 'content-type': MIME['.html']!, 'content-security-policy': "script-src 'self'" });
+      res.end(data);
+      return;
+    }
+
     if (method === 'POST' && path === '/__reset') {
       cartCalls = 0;
+      hits = 0;
       return json(res, 200, { ok: true });
     }
     if (method === 'GET' && path === '/api/500') return json(res, 500, { error: 'boom' });
@@ -118,12 +145,12 @@ export async function startFixtureServer(): Promise<{ url: string; close(): Prom
     res.end('<!doctype html><title>Not found</title><h1>404</h1>');
   }
 
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(0, host, resolve));
   const addr = server.address();
   if (!addr || typeof addr === 'string') throw new Error('no address');
 
   return {
-    url: `http://127.0.0.1:${addr.port}`,
+    url: `http://${host}:${addr.port}`,
     close: () =>
       new Promise<void>((resolve) => {
         for (const t of timers) clearTimeout(t);

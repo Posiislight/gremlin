@@ -3,14 +3,18 @@
 <body>
 <main>
   <a href="/empty.html" target="_blank">Open same-origin</a>
-  <button id="off" data-origin-swap="1">Open off-origin</button>
+  <button id="off">Open off-origin</button>
+  <button id="late">Late popup</button>
 </main>
 <script>
   document.getElementById('off').addEventListener('click', () => {
     const u = new URL(location.href);
-    u.hostname = 'localhost';
+    u.hostname = '127.0.0.2';
     u.pathname = '/empty.html';
     window.open(u.href, '_blank');
+  });
+  document.getElementById('late').addEventListener('click', () => {
+    setTimeout(() => window.open('/empty.html', '_blank'), 1000);
   });
 </script>
 </body></html>

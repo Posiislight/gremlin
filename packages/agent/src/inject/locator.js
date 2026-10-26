@@ -23,6 +23,8 @@
   };
   const role = clean(el.getAttribute('role')).split(' ')[0] || implicitRole();
 
+  // Editors' text content is user/secret data: never a locator candidate.
+  const editable = el.isContentEditable || ['textbox', 'searchbox', 'combobox'].includes(role);
   const labels = el.labels;
   const labelText = labels && labels.length ? clean(labels[0].textContent) : '';
   const ariaLabel = clean(el.getAttribute('aria-label'));
@@ -33,10 +35,10 @@
   if (!name && labelText) name = labelText;
   if (!name && tag === 'input' && ['button', 'submit', 'reset'].includes(type)) name = clean(el.value);
   if (!name && tag === 'img') name = clean(el.getAttribute('alt'));
-  if (!name && !['input', 'textarea', 'select'].includes(tag)) name = clean(el.textContent);
+  if (!name && !editable && !['input', 'textarea', 'select'].includes(tag)) name = clean(el.textContent);
   if (!name) name = clean(el.getAttribute('title')) || clean(el.getAttribute('placeholder'));
 
-  const ownText = ['input', 'textarea', 'select'].includes(tag) ? '' : clean(el.textContent);
+  const ownText = editable || ['input', 'textarea', 'select'].includes(tag) ? '' : clean(el.textContent);
 
   const parts = [];
   for (let n = el; n && n !== document.documentElement; n = n.parentElement) {

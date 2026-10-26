@@ -18,7 +18,7 @@ const PROBE = `(() => {
   return w.__gremlinSettle.count;
 })()`;
 
-type Tracker = { inflight: Set<Request>; lastActivity: number };
+type Tracker = { inflight: Map<Request, number>; lastActivity: number };
 const trackers = new WeakMap<Page, Tracker>();
 
 /**
@@ -28,9 +28,12 @@ const trackers = new WeakMap<Page, Tracker>();
 export function trackRequests(page: Page): Tracker {
   let t = trackers.get(page);
   if (t) return t;
-  const tracker: Tracker = { inflight: new Set(), lastActivity: Date.now() };
+  const tracker: Tracker = { inflight: new Map(), lastActivity: Date.now() };
   page.on('request', (r) => {
-    tracker.inflight.add(r);
+    // A main-frame navigation request starts a NEW document: requests of the old one are cancelled and may
+    // never emit finished/failed. (Same-document pushState/hash changes issue no navigation request.)
+    if (r.isNavigationRequest() && r.frame() === page.mainFrame()) tracker.inflight.clear();
+    tracker.inflight.set(r, Date.now());
     tracker.lastActivity = Date.now();
   });
   const done = (r: Request) => {
@@ -39,10 +42,6 @@ export function trackRequests(page: Page): Tracker {
   };
   page.on('requestfinished', done);
   page.on('requestfailed', done);
-  // Requests cancelled by a main-frame navigation may never emit finished/failed.
-  page.on('framenavigated', (f) => {
-    if (f === page.mainFrame()) tracker.inflight.clear();
-  });
   trackers.set(page, tracker);
   t = tracker;
   return t;
@@ -56,6 +55,8 @@ export async function settle(page: Page, opts: SettleOptions = {}): Promise<{ ca
   const tracker = trackRequests(page);
   let lastCount = -1;
   for (;;) {
+    // Prune entries older than capMs + quietMs: they are stale, not in flight.
+    for (const [r, at] of tracker.inflight) if (Date.now() - at > capMs + quietMs) tracker.inflight.delete(r);
     let domActivity = false;
     try {
       const count = (await page.evaluate(PROBE)) as number;

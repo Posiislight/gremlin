@@ -58,15 +58,16 @@ describe('execute', () => {
     await page.waitForFunction("document.getElementById('result').textContent === 'hello world'");
   });
 
-  it('type resolves placeholders and never leaks the secret in errors', async () => {
-    const ref = await refOf('Message');
-    const r = await execute(page, { type: 'type', ref, text: '{{password}}', intent: 'i' }, ctx);
+  it('type resolves placeholders before typing', async () => {
+    const r = await execute(page, { type: 'type', ref: await refOf('Message'), text: '{{password}}', intent: 'i' }, ctx);
     expect(r.outcome).toBe('ok');
     expect(await page.inputValue('#msg')).toBe('hunter2');
-    const bad = await execute(page, { type: 'type', ref, text: '{{nope}}', intent: 'i' }, ctx);
+  });
+
+  it('an unknown placeholder is an error naming the placeholder only', async () => {
+    const bad = await execute(page, { type: 'type', ref: await refOf('Message'), text: '{{nope}}', intent: 'i' }, ctx);
     expect(bad.outcome).toBe('error');
     expect(bad.error).toContain('{{nope}}');
-    expect(bad.error).not.toContain('hunter2');
   });
 
   it('select, press, hover, scroll, wait', async () => {

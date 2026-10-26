@@ -24,6 +24,11 @@
   <label>Attachment <input id="file" type="file"></label>
   <div id="fileresult"></div>
 
+  <button onclick="fetch('/api/hit', { method: 'POST', body: 'x' }).catch(() => {})">Post it</button>
+  <div id="ce" contenteditable="true" role="textbox"></div>
+  <input aria-label="Locked" disabled>
+  <button>alice@corp.com</button>
+
   <div style="height:3000px">tall</div>
 </main>
 <script>

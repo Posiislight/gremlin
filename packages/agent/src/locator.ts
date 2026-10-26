@@ -12,7 +12,10 @@ type Info = {
   css: string;
 };
 
+// Built in Node (not in the page) so no eval/new Function runs under the page's CSP; Playwright serialises
+// the function's source and calls it with the element.
 const COLLECT_SRC = readFileSync(new URL('./inject/locator.js', import.meta.url), 'utf8');
+const collect = new Function('el', `return (${COLLECT_SRC})(el);`) as (el: unknown) => Info;
 
 async function isSame(candidate: PwLocator, handle: ElementHandle): Promise<boolean> {
   try {
@@ -27,7 +30,7 @@ async function isSame(candidate: PwLocator, handle: ElementHandle): Promise<bool
 
 /** Derive a stored locator from the live element. Each field is stored only if it resolves to exactly this element. */
 export async function computeLocator(handle: ElementHandle): Promise<Locator> {
-  const info = (await handle.evaluate((el, src) => (0, eval)(`(${src})`)(el), COLLECT_SRC)) as Info;
+  const info = (await handle.evaluate(collect as never)) as Info;
   const frame: Frame | null = await handle.ownerFrame();
   const out: Locator = { css: info.css };
   if (!frame) return out;
