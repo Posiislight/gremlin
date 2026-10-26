@@ -5,13 +5,14 @@ import { computeLocator } from './locator.js';
 import { redact, resolvePlaceholders } from './secrets.js';
 import { trackRequests } from './settle.js';
 import { clickScopes } from './context.js';
+import type { PolicyHandle } from './policy.js';
 
 export type ExecContext = {
   secrets: Record<string, string>;
   origin: string;
   fixturesDir: string;
   /** Policy handle from installPolicy/createAgentContext; lets execute() report `blocked_by_policy`. */
-  policy?: { count(): number } | null;
+  policy?: Pick<PolicyHandle, 'count' | 'blockedFor'> | null;
 };
 export type ExecResult = { outcome: StepOutcome; locator: Locator | null; error?: string };
 
@@ -110,8 +111,9 @@ export async function execute(page: Page, action: Action, ctx: ExecContext): Pro
   const before = ctx.policy?.count() ?? 0;
   const r = await executeInner(page, action, ctx);
   if (!ctx.policy) return r;
-  await page.waitForTimeout(100).catch(() => undefined); // let in-flight route handlers record their abort
-  const n = ctx.policy.count() - before;
+  await page.waitForTimeout(100).catch(() => undefined); // let in-flight requests reach the interceptor
+  // Only blocks of requests issued by this page's own frames count (not background pages / popups / other contexts).
+  const n = await ctx.policy.blockedFor(page, before);
   if (n > 0) return { outcome: 'blocked_by_policy', locator: r.locator, error: `blocked by policy (${n} request${n === 1 ? '' : 's'})` };
   return r;
 }

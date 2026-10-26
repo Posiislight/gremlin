@@ -7,7 +7,7 @@ import { startFixtureServer } from './server.js';
 import { observe } from '../src/observe.js';
 import { execute, type ExecContext } from '../src/execute.js';
 import { createAgentContext } from '../src/context.js';
-import { installPolicy, type PolicyHandle } from '../src/policy.js';
+import { installPolicy, markServiceWorkersBlocked, type PolicyHandle } from '../src/policy.js';
 
 let browser: Browser;
 let server: Awaited<ReturnType<typeof startFixtureServer>>;
@@ -69,7 +69,8 @@ describe('execute under a read_only policy', () => {
 describe('redirect loops', () => {
   it('end with a plain error, not blocked_by_policy', async () => {
     // Own context: the Chromium error page lingers, and the shared agent context closes extra pages.
-    const own = await browser.newContext();
+    const own = await browser.newContext({ serviceWorkers: 'block' });
+    markServiceWorkersBlocked(own);
     const ownPolicy = await installPolicy(own, { origin: server.url, allowedActions: 'read_only', authAllowlist: [] });
     const loopPage = await own.newPage();
     await loopPage.goto(`${server.url}/actions.html`);

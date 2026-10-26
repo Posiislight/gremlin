@@ -45,7 +45,10 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-export async function startFixtureServer(): Promise<{ url: string; close(): Promise<void> }> {
+/** How long /stream keeps its response open after the first chunk. */
+export const STREAM_MS = 3000;
+
+export async function startFixtureServer(): Promise<{ url: string; close(): Promise<void>; connections(): number }> {
   let cartCalls = 0;
   let hits = 0;
   let lastCookie: string | null = null;
@@ -112,7 +115,7 @@ export async function startFixtureServer(): Promise<{ url: string; close(): Prom
       const t = setTimeout(() => {
         timers.delete(t);
         res.end('<p>late</p>');
-      }, 3000);
+      }, STREAM_MS);
       timers.add(t);
       res.on('close', () => {
         clearTimeout(t);
@@ -207,12 +210,15 @@ export async function startFixtureServer(): Promise<{ url: string; close(): Prom
     res.end('<!doctype html><title>Not found</title><h1>404</h1>');
   }
 
+  let connections = 0;
+  server.on('connection', () => (connections += 1)); // raw TCP connections: also counts TLS probes that never form a request
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const addr = server.address();
   if (!addr || typeof addr === 'string') throw new Error('no address');
 
   return {
     url: `http://127.0.0.1:${addr.port}`,
+    connections: () => connections,
     close: () =>
       new Promise<void>((resolve) => {
         for (const t of timers) clearTimeout(t);

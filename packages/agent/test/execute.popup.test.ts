@@ -61,10 +61,11 @@ describe('popups', () => {
     await context.close();
   });
 
-  it('with the policy handle in the exec context the blocked popup navigation is reported', async () => {
+  it('a blocked navigation of the popup is not blamed on the acting page (frame attribution)', async () => {
     const ctx = await fresh();
     const r = await execute(page, { type: 'click', ref: await refOf('Open off-origin'), intent: 'i' }, { ...ctx, policy });
-    expect(r.outcome).toBe('blocked_by_policy');
+    expect(r.outcome).toBe('ok');
+    expect(policy.count()).toBe(1);
     await context.close();
   });
 
@@ -85,14 +86,13 @@ describe('popups', () => {
 
   it('a popup that immediately navigates to a payment host is under policy from its first request', async () => {
     await fresh();
-    const total = async () => ((await (await fetch(`${paySrv.url}/api/total`)).json()) as { total: number }).total;
-    const before = await total();
+    const before = paySrv.connections();
     const url = `${asHost(paySrv.url, 'checkout.stripe.com')}/pay`;
     await page.evaluate(`window.open(${JSON.stringify(url)}, '_blank')`);
     await expect.poll(() => policy.blocked.length).toBe(1);
     expect(policy.blocked[0]).toMatchObject({ kind: 'policy', method: 'GET', url });
     await expect.poll(() => context.pages().length).toBe(1);
-    expect(await total()).toBe(before);
+    expect(paySrv.connections()).toBe(before);
     await context.close();
   });
 });

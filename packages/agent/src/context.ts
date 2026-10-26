@@ -1,5 +1,5 @@
 import type { Browser, BrowserContext, BrowserContextOptions, Page } from 'playwright';
-import { installPolicy, type PolicyHandle, type PolicyOptions } from './policy.js';
+import { installPolicy, markServiceWorkersBlocked, type PolicyHandle, type PolicyOptions } from './policy.js';
 
 /** Number of click scopes currently inspecting popups on a context (see execute.ts). The late-popup guard stays out of their way. */
 export const clickScopes = new WeakMap<BrowserContext, number>();
@@ -24,6 +24,7 @@ export async function createAgentContext(
 ): Promise<{ context: BrowserContext; page: Page; policy: PolicyHandle | null }> {
   const { policy: policyOpts, ...ctxOpts } = opts;
   const context = await browser.newContext({ ...ctxOpts, serviceWorkers: 'block' });
+  markServiceWorkersBlocked(context);
   const policy = policyOpts ? await installPolicy(context, policyOpts) : null;
   const page = await context.newPage();
   context.on('page', (p) => {

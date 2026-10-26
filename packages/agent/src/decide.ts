@@ -10,6 +10,8 @@ export type PolicyOptions = {
   extraHosts?: string[];
   /** Hosts of the app's own API that must be write-protected in read_only. Same entry syntax as extraHosts. */
   apiHosts?: string[];
+  /** Throw instead of warning when the context is not marked as created with serviceWorkers: 'block'. */
+  requireSwBlock?: boolean;
   /** Clock override for tests; default Date.now. */
   now?: () => number;
 };

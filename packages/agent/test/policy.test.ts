@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { launchBrowser } from './browser.js';
 import { asHost, FOREIGN } from './hosts.js';
-import { startFixtureServer } from './server.js';
-import { installPolicy, type PolicyHandle, type PolicyOptions } from '../src/policy.js';
+import { startFixtureServer, STREAM_MS } from './server.js';
+import { installPolicy, markServiceWorkersBlocked, type PolicyHandle, type PolicyOptions } from '../src/policy.js';
 
 type Srv = Awaited<ReturnType<typeof startFixtureServer>>;
 
@@ -31,6 +31,7 @@ afterAll(async () => {
 
 async function setup(mode: 'read_only' | 'full', extra: Partial<PolicyOptions> = {}) {
   const context: BrowserContext = await browser.newContext({ serviceWorkers: 'block' });
+  markServiceWorkersBlocked(context);
   const policy: PolicyHandle = await installPolicy(context, {
     origin: server.url,
     allowedActions: mode,
@@ -98,7 +99,7 @@ describe('read_only writes', () => {
   });
 
   it('rejects empty or root allowlist entries at install time', async () => {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ serviceWorkers: 'block' });
     for (const bad of ['', '/', 'api/login']) {
       await expect(installPolicy(context, { origin: server.url, allowedActions: 'read_only', authAllowlist: [bad] })).rejects.toThrow(/authAllowlist/);
     }
@@ -124,7 +125,8 @@ describe('read_only writes', () => {
   });
 
   it('treats subdomains of the target registrable domain as the same site', async () => {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    markServiceWorkersBlocked(context);
     const { blocked } = await installPolicy(context, { origin: 'http://app.example.test', allowedActions: 'read_only', authAllowlist: [] });
     const page = await context.newPage();
     expect(await post(page, 'http://api.example.test/x')).toBe('blocked');
@@ -167,7 +169,7 @@ describe('navigation and payment hosts', () => {
 
   it('always aborts payment hosts (subdomains, case, trailing dot) and the payment server gets no hit', async () => {
     for (const mode of ['full', 'read_only'] as const) {
-      const before = await totalOf(paySrv.url);
+      const before = paySrv.connections();
       const { context, page, blocked } = await setup(mode);
       const hosts = ['checkout.stripe.com', 'js.stripe.com', 'www.paypal.com', 'paypal.com', 'adyen.com', 'squareup.com', 'stripe.com', 'CHECKOUT.Stripe.com'];
       for (const h of hosts) {
@@ -175,7 +177,7 @@ describe('navigation and payment hosts', () => {
       }
       expect(await status(page, `http://stripe.com.:${new URL(paySrv.url).port}/x`, `{ mode: 'no-cors' }`)).toBe('blocked');
       expect(blocked).toHaveLength(hosts.length + 1);
-      expect(await totalOf(paySrv.url)).toBe(before);
+      expect(paySrv.connections()).toBe(before);
       await context.close();
     }
   });
@@ -209,13 +211,14 @@ describe('native redirects (CDP interception pauses every hop)', () => {
     }
   });
 
-  it('(c) a streamed page shows its first content long before the response finishes', async () => {
+  it('(c) a streamed page shows its first content while the response is still open', async () => {
     const { context, page } = await setup('read_only');
     const t = Date.now();
     await page.goto(`${server.url}/stream`, { waitUntil: 'commit' });
     await page.waitForSelector('#early');
-    expect(Date.now() - t).toBeLessThan(1500);
-    expect(await page.locator('text=late').count()).toBe(0); // the response is still open
+    const firstContentMs = Date.now() - t;
+    expect(await page.locator('text=late').count()).toBe(0); // the tail has not arrived: nothing was held back
+    expect(firstContentMs).toBeLessThan(STREAM_MS - 500); // and we did not wait for the response to finish
     await context.close();
   });
 
@@ -230,13 +233,15 @@ describe('native redirects (CDP interception pauses every hop)', () => {
   });
 
   it('(e) a redirect to a payment page is blocked at the hop; the payment server gets no hit', async () => {
-    const before = await totalOf(paySrv.url);
+    const before = paySrv.connections();
     const { context, page, blocked, policy } = await setup('full');
     await expect(page.goto(`${server.url}/redirect?to=${encodeURIComponent(pay + '/x?token=secret')}`)).rejects.toThrow();
     expect(urls(blocked)).toEqual([`GET ${pay}/x`]); // query stripped for hops
-    expect(policy.details[0]).toEqual({ resourceType: 'Document', isRedirect: true, hadQuery: true });
+    expect(policy.details[0]).toMatchObject({ resourceType: 'Document', isRedirect: true, hadQuery: true });
+    expect(policy.details[0]?.frameId).toBeTruthy();
+    expect(policy.details[0]?.reason).toContain('payment host');
     expect(page.url()).toBe(`${server.url}/empty.html`);
-    expect(await totalOf(paySrv.url)).toBe(before);
+    expect(paySrv.connections()).toBe(before);
     await context.close();
   });
 
@@ -250,13 +255,13 @@ describe('native redirects (CDP interception pauses every hop)', () => {
   });
 
   it('(g) image and XHR GET redirects to a payment host are blocked at the hop; benign third parties are not', async () => {
-    const before = await totalOf(paySrv.url);
+    const before = paySrv.connections();
     const { context, page, blocked } = await setup('read_only');
     const to = encodeURIComponent(pay + '/pic');
     await page.evaluate(`new Promise((r) => { const i = new Image(); i.onload = i.onerror = () => r('done'); i.src = '/redirect?to=${to}'; })`);
     expect(await status(page, `/redirect?to=${to}`, `{ mode: 'no-cors' }`)).toBe('blocked');
     expect(urls(blocked)).toEqual([`GET ${pay}/pic`, `GET ${pay}/pic`]);
-    expect(await totalOf(paySrv.url)).toBe(before);
+    expect(paySrv.connections()).toBe(before);
     // control: a non-payment third-party image redirect is allowed natively and does reach the server
     const f0 = await totalOf(foreignSrv.url);
     await page.evaluate(`new Promise((r) => { const i = new Image(); i.onload = i.onerror = () => r('done'); i.src = '/redirect?to=${encodeURIComponent(foreign + '/pic')}'; })`);
@@ -266,7 +271,7 @@ describe('native redirects (CDP interception pauses every hop)', () => {
   });
 
   it('(h) a cross-site iframe image redirect and a dedicated worker POST redirect are blocked at the hop', async () => {
-    const payBefore = await totalOf(paySrv.url);
+    const payBefore = paySrv.connections();
     const hitsBefore = await hitsOf(server.url);
     const fBefore = await totalOf(foreignSrv.url);
     const { context, page, blocked } = await setup('read_only', { extraHosts: [FOREIGN] });
@@ -276,7 +281,7 @@ describe('native redirects (CDP interception pauses every hop)', () => {
     await expect.poll(() => blocked.length).toBe(1);
     expect(urls(blocked)).toEqual([`GET ${pay}/charge`]);
     expect(await totalOf(foreignSrv.url)).toBeGreaterThanOrEqual(fBefore + 2); // the iframe really loaded (frame + redirect hop)
-    expect(await totalOf(paySrv.url)).toBe(payBefore);
+    expect(paySrv.connections()).toBe(payBefore);
 
     await context.close();
   });

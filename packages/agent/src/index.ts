@@ -5,7 +5,7 @@ export { settle } from './settle.js';
 export type { SettleOptions } from './settle.js';
 export { computeLocator, resolveLocator } from './locator.js';
 export { resolvePlaceholders, redact } from './secrets.js';
-export { installPolicy } from './policy.js';
+export { installPolicy, markServiceWorkersBlocked } from './policy.js';
 export type { PolicyOptions, PolicyHandle } from './policy.js';
 export { decideRequest } from './decide.js';
 export type { DecideRequest, Decision } from './decide.js';
