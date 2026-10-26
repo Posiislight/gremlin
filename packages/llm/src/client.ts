@@ -197,6 +197,7 @@ export function createLlm(cfg: LlmConfig, deps: LlmDeps = {}): Llm {
       }
 
       let problem: string | undefined;
+      let parsedValue: { data: T } | undefined;
       try {
         const parsed: unknown = JSON.parse(args);
         const candidate = wrapped
@@ -205,21 +206,27 @@ export function createLlm(cfg: LlmConfig, deps: LlmDeps = {}): Llm {
             : undefined
           : parsed;
         const result = req.tool.schema.safeParse(candidate);
-        if (result.success) {
-          const usage: Usage = {
-            role,
-            model,
-            tokensIn,
-            tokensOut,
-            latencyMs: now() - started,
-            costUsd: cost,
-          };
-          deps.onUsage?.(usage);
-          return { value: result.data, usage };
-        }
-        problem = z.prettifyError(result.error);
+        if (result.success) parsedValue = { data: result.data };
+        else problem = z.prettifyError(result.error);
       } catch (e) {
         problem = `arguments were not valid JSON: ${e instanceof Error ? e.message : String(e)}`;
+      }
+
+      if (parsedValue) {
+        const usage: Usage = {
+          role,
+          model,
+          tokensIn,
+          tokensOut,
+          latencyMs: now() - started,
+          costUsd: cost,
+        };
+        try {
+          deps.onUsage?.(usage);
+        } catch {
+          // Telemetry must never fail an otherwise successful LLM call.
+        }
+        return { value: parsedValue.data, usage };
       }
 
       if (turn === 1) {

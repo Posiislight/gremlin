@@ -225,6 +225,23 @@ describe('callTool', () => {
     });
   });
 
+  it('swallows a throwing onUsage without a repair turn', async () => {
+    const cfg = loadLlmConfig({ OPENROUTER_API_KEY: 'k' });
+    let n = 0;
+    const llm = createLlm(cfg, {
+      fetch: (async () => {
+        n++;
+        return okResponse({ reason: 'ok' });
+      }) as typeof fetch,
+      onUsage: () => {
+        throw new Error('telemetry down');
+      },
+    });
+    const r = await llm.callTool('navigator', req);
+    expect(r.value).toEqual({ reason: 'ok' });
+    expect(n).toBe(1);
+  });
+
   it('wraps non-object schemas and unwraps the value', async () => {
     const union = z.discriminatedUnion('kind', [
       z.object({ kind: z.literal('click'), id: z.number() }),
