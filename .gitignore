@@ -1,0 +1,10 @@
+node_modules
+dist
+.turbo
+.env
+.superpowers/
+playwright-report
+test-results
+*.log
+.next
+coverage
