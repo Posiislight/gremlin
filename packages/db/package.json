@@ -1,0 +1,25 @@
+{
+  "name": "@gremlin/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@gremlin/contract": "workspace:*",
+    "@paralleldrive/cuid2": "^3.3.0",
+    "drizzle-orm": "^0.45.4",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "dotenv": "^18.0.9",
+    "drizzle-kit": "^0.31.11"
+  }
+}
