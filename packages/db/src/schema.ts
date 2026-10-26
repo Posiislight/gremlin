@@ -64,6 +64,7 @@ export const scans = pgTable('scans', {
     .references(() => environments.id),
   status: text('status').notNull().default('queued'),
   teamSize: integer('team_size').notNull().default(1),
+  allowedActions: text('allowed_actions').notNull().default('read_only'),
   focus: text('focus'),
   viewports: jsonb('viewports').$type<string[]>(),
   costUsd: doublePrecision('cost_usd').notNull().default(0),

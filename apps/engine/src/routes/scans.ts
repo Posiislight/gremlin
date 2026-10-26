@@ -18,7 +18,7 @@ export const createScanBody = z.object({
 export function scanRoutes(deps: { db: Db; queues: Queues }) {
   const { db, queues } = deps;
   return async function (app: FastifyInstance): Promise<void> {
-    app.addHook('preHandler', authenticate(db));
+    app.addHook('onRequest', authenticate(db));
 
     app.post('/v1/scans', async (req, reply) => {
       const parsed = createScanBody.safeParse(req.body);
@@ -40,12 +40,6 @@ export function scanRoutes(deps: { db: Db; queues: Queues }) {
         let environmentId: string;
         if (existing) {
           environmentId = existing.id;
-          if (existing.allowedActions !== body.allowedActions) {
-            await tx
-              .update(environments)
-              .set({ allowedActions: body.allowedActions })
-              .where(eq(environments.id, existing.id));
-          }
         } else {
           const [env] = await tx
             .insert(environments)
@@ -55,7 +49,13 @@ export function scanRoutes(deps: { db: Db; queues: Queues }) {
         }
         const [scan] = await tx
           .insert(scans)
-          .values({ environmentId, status: 'queued', teamSize: body.teamSize, focus: body.focus ?? null })
+          .values({
+            environmentId,
+            status: 'queued',
+            teamSize: body.teamSize,
+            allowedActions: body.allowedActions,
+            focus: body.focus ?? null,
+          })
           .returning();
         return scan!.id;
       });

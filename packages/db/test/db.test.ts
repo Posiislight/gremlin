@@ -51,6 +51,7 @@ describe('schema', () => {
     const [back] = await db.select().from(steps).where(eq(steps.id, step!.id));
     expect(back!.actionJson).toEqual(action);
     expect(scan!.status).toBe('queued');
+    expect(scan!.allowedActions).toBe('read_only');
     expect(run!.kind).toBe('scan');
     expect(project!.createdAt).toBeInstanceOf(Date);
   });

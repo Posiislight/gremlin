@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -65,6 +65,7 @@ describe('api keys', () => {
     expect(keyA).toMatch(/^grm_[0-9A-Za-z]{32}$/);
     const rows = await db.select().from(apiKeys);
     expect(rows.some((r) => r.hash === keyA)).toBe(false);
+    expect(rows.some((r) => r.hash === createHash('sha256').update(keyA).digest('hex'))).toBe(true);
     expect(rows.every((r) => /^[0-9a-f]{64}$/.test(r.hash))).toBe(true);
   });
 });
@@ -93,6 +94,38 @@ describe('POST /v1/scans', () => {
     expect((await post({ url: 'http://localhost:3000' }, keyA)).statusCode).toBe(400);
     expect((await post({ url: 'http://localhost:3000', authorised: false }, keyA)).statusCode).toBe(400);
     expect((await post({ url: 'http://localhost:3000', authorised: true, teamSize: 21 }, keyA)).statusCode).toBe(400);
+  });
+
+  it('400 for non-http(s) urls', async () => {
+    for (const u of ['file:///etc/passwd', 'javascript:alert(1)']) {
+      expect((await post({ url: u, authorised: true }, keyA)).statusCode).toBe(400);
+    }
+  });
+
+  it('malformed JSON: 400 with a key, 401 without', async () => {
+    const headers = { 'content-type': 'application/json' };
+    const bad = await app.inject({ method: 'POST', url: '/v1/scans', payload: '{nope', headers: { ...headers, authorization: `Bearer ${keyA}` } });
+    expect(bad.statusCode).toBe(400);
+    const noKey = await app.inject({ method: 'POST', url: '/v1/scans', payload: '{nope', headers });
+    expect(noKey.statusCode).toBe(401);
+  });
+
+  it('keeps allowedActions per scan and shares one environment', async () => {
+    const [p] = await db.insert(projects).values({ name: 'per-scan' }).returning();
+    const key = await createApiKey(db, p!.id);
+    const r1 = await post({ url: 'http://shared.test/a', authorised: true, allowedActions: 'full' }, key);
+    const r2 = await post({ url: 'http://shared.test/b', authorised: true, allowedActions: 'read_only' }, key);
+    const id1 = (r1.json() as { scanId: string }).scanId;
+    const id2 = (r2.json() as { scanId: string }).scanId;
+    const [s1] = await db.select().from(scans).where(eq(scans.id, id1));
+    const [s2] = await db.select().from(scans).where(eq(scans.id, id2));
+    expect(s1!.allowedActions).toBe('full');
+    expect(s2!.allowedActions).toBe('read_only');
+    expect(s1!.environmentId).toBe(s2!.environmentId);
+    const envs = await db.select().from(environments).where(eq(environments.projectId, p!.id));
+    expect(envs).toHaveLength(1);
+    const got = await app.inject({ method: 'GET', url: `/v1/scans/${id1}`, headers: { authorization: `Bearer ${key}` } });
+    expect(got.json().allowedActions).toBe('full');
   });
 
   it('201, queued scan, upserted environment, one discovery job', async () => {
@@ -143,8 +176,14 @@ describe('GET /v1/scans/:id', () => {
   });
 
   it('updates last_used_at', async () => {
-    const rows = await db.select().from(apiKeys);
-    expect(rows.some((r) => r.lastUsedAt instanceof Date)).toBe(true);
+    const [p] = await db.insert(projects).values({ name: 'lu' }).returning();
+    const key = await createApiKey(db, p!.id);
+    const hash = createHash('sha256').update(key).digest('hex');
+    const [before] = await db.select().from(apiKeys).where(eq(apiKeys.hash, hash));
+    expect(before!.lastUsedAt).toBeNull();
+    await app.inject({ method: 'GET', url: '/v1/scans/nope', headers: { authorization: `Bearer ${key}` } });
+    const [after] = await db.select().from(apiKeys).where(eq(apiKeys.hash, hash));
+    expect(after!.lastUsedAt).toBeInstanceOf(Date);
   });
 });
 
@@ -174,5 +213,26 @@ describe('GET /v1/files/*', () => {
   it('404 for a correctly signed missing object', async () => {
     const path = signFilePath('runs/none.png', process.env.GREMLIN_SECRET_KEY!);
     expect((await app.inject({ method: 'GET', url: path })).statusCode).toBe(404);
+  });
+
+  it('never serves content for traversal-ish keys, even when signed', async () => {
+    const secret = process.env.GREMLIN_SECRET_KEY!;
+    const expires = String(Math.floor(Date.now() / 1000) + 600);
+    for (const raw of ['../../etc/passwd', '%2e%2e/%2e%2e/etc/passwd', 'runs//r1/shot.png', '..']) {
+      const unsigned = await app.inject({ method: 'GET', url: `/v1/files/${raw}` });
+      expect([403, 404]).toContain(unsigned.statusCode);
+      expect(unsigned.body).not.toContain('root:');
+      const key = decodeURIComponent(raw);
+      const sig = createHmac('sha256', secret).update(key + expires).digest('hex');
+      const signed = await app.inject({ method: 'GET', url: `/v1/files/${raw}?expires=${expires}&sig=${sig}` });
+      expect([403, 404]).toContain(signed.statusCode);
+      expect(signed.body).not.toContain('root:');
+    }
+  });
+
+  it('403 for a tampered signature', async () => {
+    const path = signFilePath('runs/r1/shot.png', process.env.GREMLIN_SECRET_KEY!);
+    const tampered = path.replace(/sig=(.)/, (_m, c: string) => `sig=${c === 'a' ? 'b' : 'a'}`);
+    expect((await app.inject({ method: 'GET', url: tampered })).statusCode).toBe(403);
   });
 });

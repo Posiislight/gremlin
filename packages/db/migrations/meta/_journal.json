@@ -15,6 +15,13 @@
       "when": 1793030192603,
       "tag": "0001_spooky_ezekiel",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793032322479,
+      "tag": "0002_short_the_fury",
+      "breakpoints": true
     }
   ]
 }

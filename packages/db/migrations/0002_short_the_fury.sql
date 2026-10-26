@@ -1,0 +1,1 @@
+ALTER TABLE "scans" ADD COLUMN "allowed_actions" text DEFAULT 'read_only' NOT NULL;

@@ -18,6 +18,9 @@ RUN pnpm --filter @gremlin/engine deploy --prod /out
 FROM mcr.microsoft.com/playwright:v1.64.1-noble
 ENV NODE_ENV=production PORT=8080
 WORKDIR /app
-COPY --from=build /out /app
+COPY --from=build --chown=pwuser:pwuser /out /app
+# Runs as the image non-root user (pwuser). If Chromium later needs it, launch with
+# --no-sandbox or run the container with --ipc=host / a seccomp profile; not needed yet.
+USER pwuser
 EXPOSE 8080
 CMD ["node_modules/.bin/tsx", "src/main.ts"]
