@@ -22,6 +22,15 @@ export function hugeHtml(): string {
   return `<!doctype html><html><head><title>Huge</title></head><body><main><h1>Huge page</h1>\n${paras}\n<ul>\n${links}\n</ul></main></body></html>`;
 }
 
+/** 160 elements with 500-char aria-labels and values, plus 40 long alerts. */
+export function longHtml(): string {
+  const L = (c: string) => c.repeat(500);
+  const inputs = Array.from({ length: 160 }, (_, i) => `<input aria-label="${L('n' + (i % 10))}" value="${L('v')}">`).join('\n');
+  const alerts = Array.from({ length: 40 }, (_, i) => `<div role="alert">${'alert' + i + ' '.padEnd(1, ' ')}${L('z')}</div>`).join('\n');
+  return `<!doctype html><html><head><title>Long</title></head><body><main><h1>Long</h1>
+${inputs}\n${alerts}</main></body></html>`;
+}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -80,6 +89,11 @@ export async function startFixtureServer(): Promise<{ url: string; close(): Prom
       cartCalls += 1;
       if (cartCalls === 2) return json(res, 500, { error: 'cart unavailable' });
       return json(res, 200, { items: cartCalls });
+    }
+    if (method === 'GET' && path === '/long.html') {
+      res.writeHead(200, { 'content-type': MIME['.html']! });
+      res.end(longHtml());
+      return;
     }
     if (method === 'GET' && path === '/huge.html') {
       res.writeHead(200, { 'content-type': MIME['.html']! });

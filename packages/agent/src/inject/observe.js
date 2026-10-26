@@ -10,6 +10,7 @@
     '[onclick]', '[contenteditable=""]', '[contenteditable=true]',
   ].join(',');
   const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const cap = (s, n) => clean(s).slice(0, n);
 
   const isHidden = (el) => {
     if (el.closest('[hidden],[aria-hidden=true]')) return true;
@@ -45,66 +46,66 @@
   };
 
   const nameOf = (el) => {
-    const al = clean(el.getAttribute('aria-label'));
+    const al = cap(el.getAttribute('aria-label'), 80);
     if (al) return al;
     const lb = el.getAttribute('aria-labelledby');
     if (lb) {
-      const t = clean(lb.split(/\s+/).map((id) => {
+      const t = cap(lb.split(/\s+/).map((id) => {
         const n = document.getElementById(id);
         return n ? n.textContent : '';
-      }).join(' '));
+      }).join(' '), 80);
       if (t) return t;
     }
     if (el.labels && el.labels.length) {
-      const t = clean(Array.from(el.labels).map((l) => l.textContent).join(' '));
-      if (t) return t.slice(0, 80);
+      const t = cap(Array.from(el.labels).map((l) => l.textContent).join(' '), 80);
+      if (t) return t;
     }
-    const ph = clean(el.getAttribute('placeholder'));
+    const ph = cap(el.getAttribute('placeholder'), 80);
     if (ph) return ph;
     const tag = el.tagName.toLowerCase();
     if (tag === 'input') {
       const t = (el.getAttribute('type') || '').toLowerCase();
       if (['button', 'submit', 'reset'].includes(t)) {
-        const v = clean(el.value);
-        if (v) return v.slice(0, 80);
+        const v = cap(el.value, 80);
+        if (v) return v;
       }
     }
-    const alt = clean(el.getAttribute('alt')) || clean(el.getAttribute('title'));
-    if (alt) return alt.slice(0, 80);
-    if (tag === 'select' || tag === 'textarea' || tag === 'input') return clean(el.getAttribute('name')).slice(0, 80);
-    let txt = clean(el.innerText || el.textContent);
+    const alt = cap(el.getAttribute('alt'), 80) || cap(el.getAttribute('title'), 80);
+    if (alt) return alt;
+    if (tag === 'select' || tag === 'textarea' || tag === 'input') return cap(el.getAttribute('name'), 80);
+    let txt = cap(el.innerText || el.textContent, 80);
     if (!txt) {
       const img = el.querySelector('img[alt]');
-      if (img) txt = clean(img.getAttribute('alt'));
+      if (img) txt = cap(img.getAttribute('alt'), 80);
     }
-    return txt.slice(0, 80);
+    return txt;
   };
 
   const headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading]'));
   const sectionOf = (el) => {
     const lm = el.closest('form,section,article,[role=region],[role=dialog],nav,aside,header,footer,main,[role=main],[role=navigation]');
-    const lab = lm ? clean(lm.getAttribute('aria-label')) : '';
-    if (lab) return lab.slice(0, 60);
+    const lab = lm ? cap(lm.getAttribute('aria-label'), 60) : '';
+    if (lab) return lab;
     let best = null;
     for (const h of headings) {
       if (h.contains(el) || (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) best = h;
       else break;
     }
     if (best) {
-      const t = clean(best.textContent);
-      if (t) return t.slice(0, 60);
+      const t = cap(best.textContent, 60);
+      if (t) return t;
     }
-    if (lm) return lm.getAttribute('role') || lm.tagName.toLowerCase();
+    if (lm) return cap(lm.getAttribute('role') || lm.tagName.toLowerCase(), 60);
     return undefined;
   };
 
-  // allocate new ref numbers after the highest existing one
+  // per-document monotonic counter so refs are never reissued
   let max = 0;
   document.querySelectorAll('[data-gremlin-ref]').forEach((e) => {
     const n = parseInt((e.getAttribute('data-gremlin-ref') || '').slice(1), 10);
     if (n > max) max = n;
   });
-  let next = max + 1;
+  if (!(window.__gremlinRefNext > max)) window.__gremlinRefNext = max + 1;
 
   const vh = window.innerHeight, vw = window.innerWidth;
   const all = [];
@@ -118,7 +119,7 @@
   const items = [];
   for (const { el, inViewport } of ordered.slice(0, MAX)) {
     let ref = el.getAttribute('data-gremlin-ref');
-    if (!ref) { ref = 'e' + next++; el.setAttribute('data-gremlin-ref', ref); }
+    if (!ref) { ref = 'e' + window.__gremlinRefNext++; el.setAttribute('data-gremlin-ref', ref); }
     const it = {
       ref, role: roleOf(el), name: nameOf(el),
       disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
@@ -129,7 +130,8 @@
     if (tag === 'input' && (type === 'checkbox' || type === 'radio')) {
       it.value = el.checked ? 'checked' : 'unchecked';
     } else if ((tag === 'input' || tag === 'textarea' || tag === 'select') && type !== 'password' && el.value) {
-      it.value = String(el.value).slice(0, 80);
+      it.value = cap(String(el.value), 80);
+      if (!it.value) delete it.value;
     }
     const sec = sectionOf(el);
     if (sec) it.section = sec;
@@ -168,7 +170,7 @@
     text = parts.join(' ');
   }
   return {
-    title: document.title, items, alerts: alerts.slice(0, 10), headings: heads.slice(0, 20),
+    title: cap(document.title, 200), items, alerts: alerts.slice(0, 10), headings: heads.slice(0, 20),
     text: text.slice(0, MAX_TEXT_CHARS * 2), total: all.length,
   };
 }

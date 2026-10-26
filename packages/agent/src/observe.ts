@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { Page } from 'playwright';
 import { normalizePath, stateHash } from './url.js';
@@ -22,6 +23,8 @@ export type Observation = {
   alerts: string[];
   rendered: string;
   tokenEstimate: number;
+  /** Internal: refs + disabled + value/checked of all interactables. Diff mode uses it; not part of stateHash. */
+  contentSig?: string;
 };
 
 export type ObserveOptions = {
@@ -45,6 +48,8 @@ export function estimateTokens(s: string): number {
 
 // Read once at module load; a function expression evaluated in the page.
 const INJECT_SRC = readFileSync(new URL('./inject/observe.js', import.meta.url), 'utf8');
+
+const HARD_CAP_TOKENS = 6000;
 
 function truncateToTokens(s: string, tokens: number): string {
   const max = Math.max(0, tokens * 4);
@@ -75,30 +80,57 @@ export async function observe(page: Page, opts: ObserveOptions = {}): Promise<Ob
   const textBudget = Math.max(0, maxTextTokens - estimateTokens(headings));
   const text = truncateToTokens(raw.text, textBudget);
 
-  const unchanged = opts.previous !== undefined && opts.previous.stateHash === hash;
-  const n = raw.items.length;
-  const more = raw.total > n ? ` (showing ${n} of ${raw.total})` : '';
+  const sig = createHash('sha1')
+    .update(raw.items.map((i) => `${i.ref}|${i.disabled ? 1 : 0}|${i.value ?? ''}`).join('\n'))
+    .digest('hex');
+  // Diff mode: the "unchanged" shortcut is used only when stateHash AND contentSig match,
+  // so disabled flips, value/checked changes and re-created refs render the full list.
+  const unchanged = opts.previous !== undefined && opts.previous.stateHash === hash && opts.previous.contentSig === sig;
 
-  const parts = [`URL: ${url}`, `Title: ${raw.title}`];
-  parts.push(
-    unchanged
-      ? `Interactables: (unchanged, ${n} elements)`
-      : `Interactables (${n})${more}:\n${n ? raw.items.map(renderLine).join('\n') : '(none)'}`,
-  );
-  if (raw.alerts.length) parts.push(`Alerts:\n${raw.alerts.map((a) => `- ${a}`).join('\n')}`);
-  if (headings) parts.push(headings);
-  if (text) parts.push(`Text: ${text}`);
-  const rendered = parts.join('\n');
+  let items = raw.items;
+  let alerts = raw.alerts;
+  let bodyText = text;
+  const build = (): string => {
+    const n = items.length;
+    const more = raw.total > n ? ` (showing ${n} of ${raw.total})` : '';
+    const parts = [`URL: ${url}`, `Title: ${raw.title}`];
+    parts.push(
+      unchanged
+        ? `Interactables: (unchanged, ${n} elements)`
+        : `Interactables (${n})${more}:
+${n ? items.map(renderLine).join('\n') : '(none)'}`,
+    );
+    if (alerts.length) parts.push(`Alerts:
+${alerts.map((a) => `- ${a}`).join('\n')}`);
+    if (headings) parts.push(headings);
+    if (bodyText) parts.push(`Text: ${bodyText}`);
+    return parts.join('\n');
+  };
+  let rendered = build();
+  // Hard cap: drop trailing interactables, then alerts, then text.
+  while (estimateTokens(rendered) > HARD_CAP_TOKENS && items.length > 0) {
+    items = items.slice(0, Math.max(0, items.length - Math.max(1, Math.ceil(items.length / 20))));
+    rendered = build();
+  }
+  while (estimateTokens(rendered) > HARD_CAP_TOKENS && alerts.length > 0) {
+    alerts = alerts.slice(0, -1);
+    rendered = build();
+  }
+  if (estimateTokens(rendered) > HARD_CAP_TOKENS) {
+    bodyText = '';
+    rendered = build();
+  }
 
   return {
     url,
     path,
     stateHash: hash,
     title: raw.title,
-    interactables: raw.items,
-    text,
-    alerts: raw.alerts,
+    interactables: items,
+    text: bodyText,
+    alerts,
     rendered,
     tokenEstimate: estimateTokens(rendered),
+    contentSig: sig,
   };
 }
