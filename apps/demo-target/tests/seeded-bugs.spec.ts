@@ -78,12 +78,27 @@ test.describe('seeded bugs', () => {
     expect(good.status()).toBe(200);
   });
 
-  test('bug 3: profile throws an uncaught exception when bio is empty', async ({ page }) => {
+  test('bug 3: profile throws an uncaught exception when bio is empty', async ({ page, browser, baseURL }) => {
     await loginCustomer(page);
     const errors: Error[] = [];
     page.on('pageerror', (e) => errors.push(e));
     await page.goto('/profile');
-    await expect.poll(() => errors.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect
+      .poll(() => errors.some((e) => /TypeError|Cannot read/.test(e.message)), { timeout: 10_000 })
+      .toBe(true);
+
+    // control: admin has a non-empty bio, so /profile must NOT throw
+    const adminCtx = await browser.newContext({ baseURL });
+    const adminPage = await adminCtx.newPage();
+    const adminErrors: Error[] = [];
+    const admin = seed.users.find((u) => u.persona === 'admin')!;
+    await login(adminPage, admin.email!, admin.password!);
+    adminPage.on('pageerror', (e) => adminErrors.push(e));
+    await adminPage.goto('/profile');
+    await expect(adminPage.getByTestId('profile-bio')).toHaveText(admin.bio!);
+    await adminPage.waitForTimeout(1500);
+    expect(adminErrors).toHaveLength(0);
+    await adminCtx.close();
   });
 
   test('bug 4: footer Careers link is a 404', async ({ page }) => {
@@ -105,6 +120,10 @@ test.describe('seeded bugs', () => {
     await page.getByTestId('add-to-cart').click();
     await page.waitForTimeout(500);
     await expect(page.getByTestId('cart-badge')).toHaveText('1');
+    // both clicks registered: the single cart line has qty 2
+    await page.goto('/cart');
+    await expect(page.getByTestId('qty-input')).toHaveCount(1);
+    await expect(page.getByTestId('qty-input')).toHaveValue('2');
   });
 
   test('bug 6: back after checkout re-submits the order', async ({ page }) => {
@@ -161,7 +180,10 @@ test.describe('seeded bugs', () => {
     expect(box!.x + box!.width).toBeGreaterThan(390);
   });
 
-  test('bug 11: product page LCP is above 4000 ms', async ({ page }) => {
+  test('bug 11: product page LCP is above 4000 ms', async ({ page, request }) => {
+    // warm the route so a cold dev compile cannot skew the measurement
+    await request.get('/product/1');
+    await request.get('/product/1');
     await page.addInitScript(() => {
       (window as unknown as { __lcp: number }).__lcp = 0;
       new PerformanceObserver((list) => {
@@ -177,6 +199,7 @@ test.describe('seeded bugs', () => {
   });
 
   test('bug 12: GET /api/orders returns 500 about one call in three', async ({ request }) => {
+    // `request` is a fresh APIRequestContext (own cookie jar), so the cookie-based counter starts at 0
     let failures = 0;
     for (let i = 0; i < 30; i++) {
       const r = await request.get('/api/orders');
