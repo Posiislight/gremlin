@@ -1,0 +1,1 @@
+ALTER TABLE "agent_runs" ALTER COLUMN "scan_id" DROP NOT NULL;

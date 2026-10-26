@@ -194,7 +194,7 @@ importers:
         specifier: ^3.3.0
         version: 3.3.0
       drizzle-orm:
-        specifier: ^0.45.4
+        specifier: 0.45.4
         version: 0.45.4(postgres@3.4.9)
       postgres:
         specifier: ^3.4.9

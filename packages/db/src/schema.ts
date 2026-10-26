@@ -87,9 +87,8 @@ export const charters = pgTable('charters', {
 
 export const agentRuns = pgTable('agent_runs', {
   id: id(),
-  scanId: text('scan_id')
-    .notNull()
-    .references(() => scans.id),
+  // Null for verify/live/scenario runs that are not part of a scan.
+  scanId: text('scan_id').references(() => scans.id),
   charterId: text('charter_id').references(() => charters.id),
   kind: text('kind').notNull().$type<'scan' | 'confirm' | 'live' | 'verify' | 'scenario'>(),
   status: text('status').notNull().default('queued'),

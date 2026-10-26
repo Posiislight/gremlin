@@ -19,7 +19,10 @@ export async function migrate(db: Db, options: { schema?: string } = {}): Promis
         sql: m.sql.map((s) => s.replaceAll('"public".', `"${schema}".`)),
       }))
     : migrations;
-  // drizzle's own migrator has no hook to rewrite SQL, so go through the (internal) dialect.
+  // Deliberate cast: drizzle's migrator can't rewrite SQL, so use the internal dialect (tied to drizzle-orm 0.45.x).
   const { dialect, session } = db as unknown as { dialect: PgDialect; session: PgSession };
+  if (typeof dialect?.migrate !== 'function') {
+    throw new Error('drizzle-orm internals changed: db.dialect.migrate is missing (expected drizzle-orm 0.45.x)');
+  }
   await dialect.migrate(target, session, { migrationsFolder, ...(schema ? { migrationsSchema: schema } : {}) });
 }

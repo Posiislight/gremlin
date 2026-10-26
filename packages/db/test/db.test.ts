@@ -55,6 +55,13 @@ describe('schema', () => {
     expect(project!.createdAt).toBeInstanceOf(Date);
   });
 
+  it('allows a verify run without a scan', async () => {
+    const [run] = await db.insert(agentRuns).values({ kind: 'verify', status: 'queued' }).returning();
+    const [back] = await db.select().from(agentRuns).where(eq(agentRuns.id, run!.id));
+    expect(back!.scanId).toBeNull();
+    expect(back!.kind).toBe('verify');
+  });
+
   it('rejects a duplicate (project_id, signature) finding', async () => {
     const [project] = await db.insert(projects).values({ name: 'dup' }).returning();
     const row = {
