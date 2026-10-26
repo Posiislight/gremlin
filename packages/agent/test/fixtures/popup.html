@@ -9,7 +9,7 @@
 <script>
   document.getElementById('off').addEventListener('click', () => {
     const u = new URL(location.href);
-    u.hostname = '127.0.0.2';
+    u.hostname = 'foreign.test';
     u.pathname = '/empty.html';
     window.open(u.href, '_blank');
   });

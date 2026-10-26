@@ -45,9 +45,11 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-export async function startFixtureServer(host = '127.0.0.1'): Promise<{ url: string; close(): Promise<void> }> {
+export async function startFixtureServer(): Promise<{ url: string; close(): Promise<void> }> {
   let cartCalls = 0;
   let hits = 0;
+  let lastCookie: string | null = null;
+  let total = 0;
   const timers = new Set<NodeJS.Timeout>();
 
   const server = createServer((req, res) => {
@@ -62,8 +64,10 @@ export async function startFixtureServer(host = '127.0.0.1'): Promise<{ url: str
     const method = req.method ?? 'GET';
     const path = u.pathname;
 
-    // Permissive CORS so cross-origin fixture servers (127.0.0.1 vs 127.0.0.2) can be read by tests.
+    // Permissive CORS so cross-origin fixture servers (see hosts.ts) can be read by tests.
     res.setHeader('access-control-allow-origin', '*');
+    if (path !== '/api/total' && path !== '/api/hits' && path !== '/api/last-cookie' && path !== '/__reset') total += 1;
+    if (method === 'GET' && path === '/api/total') return json(res, 200, { total });
     if (method === 'OPTIONS') {
       res.writeHead(204, { 'access-control-allow-methods': '*', 'access-control-allow-headers': '*' });
       res.end();
@@ -75,6 +79,62 @@ export async function startFixtureServer(host = '127.0.0.1'): Promise<{ url: str
       res.end();
       return;
     }
+    if (path === '/login') {
+      res.writeHead(302, { location: '/app/', 'set-cookie': 'sess=fromhop; Path=/' });
+      res.end();
+      return;
+    }
+    if (path === '/app/') {
+      res.writeHead(200, { 'content-type': MIME['.html']! });
+      res.end(`<!doctype html><title>app</title><a id="rel" href="next">next</a>
+<form id="f" method="post" action="save"><input name="a" value="1"></form>
+<script src="app.js"></script>`);
+      return;
+    }
+    if (path === '/app/app.js') {
+      res.writeHead(200, { 'content-type': MIME['.js']! });
+      res.end(`fetch('data').then(r => r.text()).then(t => { window.fetched = t; });`);
+      return;
+    }
+    if (path === '/app/data') {
+      res.writeHead(200, { 'content-type': MIME['.txt']! });
+      res.end('APPDATA');
+      return;
+    }
+    if (path === '/loop') {
+      res.writeHead(302, { location: '/loop' });
+      res.end();
+      return;
+    }
+    if (path === '/stream') {
+      res.writeHead(200, { 'content-type': MIME['.html']! });
+      res.write('<!doctype html><p id="early">EARLY</p>' + ' '.repeat(2048));
+      const t = setTimeout(() => {
+        timers.delete(t);
+        res.end('<p>late</p>');
+      }, 3000);
+      timers.add(t);
+      res.on('close', () => {
+        clearTimeout(t);
+        timers.delete(t);
+      });
+      return;
+    }
+    if (path === '/frame') {
+      res.writeHead(200, { 'content-type': MIME['.html']! });
+      res.end(`<!doctype html><img src="/redirect?to=${encodeURIComponent(u.searchParams.get('to') ?? '/')}">`);
+      return;
+    }
+    if (method === 'GET' && path === '/setcookie') {
+      res.writeHead(200, { 'set-cookie': 'lax=1; Path=/; SameSite=Lax', 'content-type': MIME['.html']! });
+      res.end('ok');
+      return;
+    }
+    if (method === 'GET' && path === '/api/whoami') {
+      lastCookie = req.headers.cookie ?? null;
+      return json(res, 200, { cookie: lastCookie });
+    }
+    if (method === 'GET' && path === '/api/last-cookie') return json(res, 200, { cookie: lastCookie });
     if (method === 'POST' && path === '/api/hit') {
       hits += 1;
       return json(res, 200, { hits });
@@ -90,6 +150,8 @@ export async function startFixtureServer(host = '127.0.0.1'): Promise<{ url: str
     if (method === 'POST' && path === '/__reset') {
       cartCalls = 0;
       hits = 0;
+      lastCookie = null;
+      total = 0;
       return json(res, 200, { ok: true });
     }
     if (method === 'GET' && path === '/api/500') return json(res, 500, { error: 'boom' });
@@ -145,12 +207,12 @@ export async function startFixtureServer(host = '127.0.0.1'): Promise<{ url: str
     res.end('<!doctype html><title>Not found</title><h1>404</h1>');
   }
 
-  await new Promise<void>((resolve) => server.listen(0, host, resolve));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const addr = server.address();
   if (!addr || typeof addr === 'string') throw new Error('no address');
 
   return {
-    url: `http://${host}:${addr.port}`,
+    url: `http://127.0.0.1:${addr.port}`,
     close: () =>
       new Promise<void>((resolve) => {
         for (const t of timers) clearTimeout(t);

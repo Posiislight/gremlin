@@ -6,20 +6,24 @@ import { observe } from '../src/observe.js';
 import { execute } from '../src/execute.js';
 import { createAgentContext } from '../src/context.js';
 import type { PolicyHandle } from '../src/policy.js';
+import { asHost } from './hosts.js';
 
 let browser: Browser;
 let server: Awaited<ReturnType<typeof startFixtureServer>>;
+let paySrv: Awaited<ReturnType<typeof startFixtureServer>>;
 let context: BrowserContext;
 let page: Page;
 let policy: PolicyHandle;
 
 beforeAll(async () => {
   server = await startFixtureServer();
+  paySrv = await startFixtureServer();
   browser = await launchBrowser();
 });
 afterAll(async () => {
   await browser?.close();
   await server?.close();
+  await paySrv?.close();
 });
 
 async function fresh() {
@@ -53,7 +57,7 @@ describe('popups', () => {
     expect(page.url()).toBe(`${server.url}/popup.html`);
     expect(context.pages()).toHaveLength(1);
     expect(policy.blocked).toHaveLength(1);
-    expect(policy.blocked[0]).toMatchObject({ kind: 'policy', method: 'GET', url: `http://127.0.0.2:${new URL(server.url).port}/empty.html` });
+    expect(policy.blocked[0]).toMatchObject({ kind: 'policy', method: 'GET', url: `http://foreign.test:${new URL(server.url).port}/empty.html` });
     await context.close();
   });
 
@@ -76,6 +80,19 @@ describe('popups', () => {
     await expect.poll(() => context.pages().length, { timeout: 3000 }).toBe(1);
     expect(context.pages()).toHaveLength(1);
     expect(page.url()).toBe(`${server.url}/popup.html`);
+    await context.close();
+  });
+
+  it('a popup that immediately navigates to a payment host is under policy from its first request', async () => {
+    await fresh();
+    const total = async () => ((await (await fetch(`${paySrv.url}/api/total`)).json()) as { total: number }).total;
+    const before = await total();
+    const url = `${asHost(paySrv.url, 'checkout.stripe.com')}/pay`;
+    await page.evaluate(`window.open(${JSON.stringify(url)}, '_blank')`);
+    await expect.poll(() => policy.blocked.length).toBe(1);
+    expect(policy.blocked[0]).toMatchObject({ kind: 'policy', method: 'GET', url });
+    await expect.poll(() => context.pages().length).toBe(1);
+    expect(await total()).toBe(before);
     await context.close();
   });
 });

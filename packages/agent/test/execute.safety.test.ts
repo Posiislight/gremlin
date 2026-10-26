@@ -7,7 +7,7 @@ import { startFixtureServer } from './server.js';
 import { observe } from '../src/observe.js';
 import { execute, type ExecContext } from '../src/execute.js';
 import { createAgentContext } from '../src/context.js';
-import type { PolicyHandle } from '../src/policy.js';
+import { installPolicy, type PolicyHandle } from '../src/policy.js';
 
 let browser: Browser;
 let server: Awaited<ReturnType<typeof startFixtureServer>>;
@@ -63,6 +63,22 @@ describe('execute under a read_only policy', () => {
     const r = await execute(page, { type: 'goto', path: '/\\evil.example.com', intent: 'i' }, ctx);
     expect(r.outcome).toBe('error');
     expect(policy.count()).toBe(before);
+  });
+});
+
+describe('redirect loops', () => {
+  it('end with a plain error, not blocked_by_policy', async () => {
+    // Own context: the Chromium error page lingers, and the shared agent context closes extra pages.
+    const own = await browser.newContext();
+    const ownPolicy = await installPolicy(own, { origin: server.url, allowedActions: 'read_only', authAllowlist: [] });
+    const loopPage = await own.newPage();
+    await loopPage.goto(`${server.url}/actions.html`);
+    const r = await execute(loopPage, { type: 'goto', path: '/loop', intent: 'i' }, { ...ctx, policy: ownPolicy });
+    const count = ownPolicy.count();
+    await own.close();
+    expect(r.outcome).toBe('error');
+    expect(r.error).toMatch(/ERR_TOO_MANY_REDIRECTS/);
+    expect(count).toBe(0);
   });
 });
 

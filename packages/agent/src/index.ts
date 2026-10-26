@@ -7,6 +7,8 @@ export { computeLocator, resolveLocator } from './locator.js';
 export { resolvePlaceholders, redact } from './secrets.js';
 export { installPolicy } from './policy.js';
 export type { PolicyOptions, PolicyHandle } from './policy.js';
+export { decideRequest } from './decide.js';
+export type { DecideRequest, Decision } from './decide.js';
 export { createAgentContext } from './context.js';
 export type { AgentContextOptions } from './context.js';
 export { dismissConsent } from './consent.js';
