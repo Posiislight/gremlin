@@ -35,7 +35,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.register(
     eventRoutes({ db: deps.db, webOrigin, ...(deps.eventPollMs ? { pollMs: deps.eventPollMs } : {}) }),
   );
-  app.register(mcpRoutes({ db: deps.db, queues: deps.queues }));
+  app.register(mcpRoutes({ db: deps.db, queues: deps.queues, webUrl: process.env.GREMLIN_WEB_URL ?? 'http://localhost:3200' }));
   app.register(fileRoutes({ storage: deps.storage, secret }));
   return app;
 }

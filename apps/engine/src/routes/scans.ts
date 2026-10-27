@@ -60,7 +60,8 @@ export function scanRoutes(deps: { db: Db; queues: Queues }) {
         return scan!.id;
       });
 
-      await queues.discovery.add('discover', { scanId });
+      const entry = new URL(body.url);
+      await queues.discovery.add('discover', { scanId, startPath: `${entry.pathname}${entry.search}` });
       return reply.code(201).send({ scanId });
     });
   };

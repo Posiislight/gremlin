@@ -3,6 +3,8 @@ import { createLlm, loadLlmConfig } from '@gremlin/llm';
 import { createStorage } from '@gremlin/storage';
 import { createUsageSink } from './persist.js';
 import { startWorkers } from './worker.js';
+import { createQueues, closeQueues } from './queue.js';
+import { startDiscoveryWorker } from './orchestrator.js';
 
 function need(name: string): string {
   const v = process.env[name];
@@ -16,6 +18,8 @@ async function main(): Promise<void> {
   const storage = createStorage(process.env);
   const llm = createLlm(loadLlmConfig(process.env), { onUsage: createUsageSink(db) });
   const workers = await startWorkers({ db, storage, llm, redisUrl: need('REDIS_URL') });
+  const queues = createQueues(need('REDIS_URL'));
+  const discovery = await startDiscoveryWorker({ db, queues, redisUrl: need('REDIS_URL') });
   console.info('agent worker started');
 
   let closing = false;
@@ -24,7 +28,9 @@ async function main(): Promise<void> {
     closing = true;
     console.info(`agent worker shutting down (${signal})`);
     try {
+      await discovery.close();
       await workers.close();
+      await closeQueues(queues);
       await db.close();
     } finally {
       process.exit(0);

@@ -10,9 +10,11 @@ import {
   type ApiScanDetail,
   type ApiTimeline,
 } from '@gremlin/contract';
-import { agentRuns, charters, findingOccurrences, findings, llmUsage, noise, projects, steps, type Db } from '@gremlin/db';
+import { agentRuns, charters, environments, findingOccurrences, findings, llmUsage, noise, projects, scans, steps, type Db } from '@gremlin/db';
 import type { Storage } from '@gremlin/storage';
 import { authenticate } from '../auth.js';
+import { inScan } from '../scan-findings.js';
+import { fixPrompt, playwrightTest, replayUrl, type PromptStep } from '../mcp/prompt.js';
 import { signFilePath } from './files.js';
 import { ownedFinding, ownedRun, ownedScan } from './access.js';
 import { runSummary, summarizeFindings } from './serialize.js';
@@ -72,6 +74,25 @@ export function apiRoutes(deps: { db: Db; storage: Storage; secret: string }) {
       return { projects: rows.map((p) => ({ id: p.id, name: p.name, createdAt: p.createdAt.toISOString() })) };
     });
 
+    app.get('/v1/projects/:id/scans', async (req, reply) => {
+      const p = idParam.safeParse(req.params);
+      if (!p.success) return bad(reply, p.error.issues);
+      if (p.data.id !== req.projectId) return notFound(reply);
+      const rows = await db.select({ scan: scans, baseUrl: environments.baseUrl })
+        .from(scans).innerJoin(environments, eq(scans.environmentId, environments.id))
+        .where(eq(environments.projectId, req.projectId)).orderBy(desc(scans.startedAt), desc(scans.id)).limit(100);
+      return { scans: await Promise.all(rows.map(async ({ scan, baseUrl }) => {
+        const [counts] = await db.select({
+          total: sql<number>`count(*)::int`,
+          p0: sql<number>`count(*) filter (where ${findings.priority} = 'P0')::int`,
+          p1: sql<number>`count(*) filter (where ${findings.priority} = 'P1')::int`,
+        }).from(findings).where(and(inScan(scan.id), sql`${findings.status} <> 'dismissed'`));
+        return { ...scan, baseUrl, projectId: req.projectId, findingCount: counts?.total ?? 0,
+          p0: counts?.p0 ?? 0, p1: counts?.p1 ?? 0,
+          startedAt: scan.startedAt?.toISOString() ?? null, finishedAt: scan.finishedAt?.toISOString() ?? null };
+      })) };
+    });
+
     app.get('/v1/projects/:id/findings', async (req, reply) => {
       const p = idParam.safeParse(req.params);
       const q = ListFindingsQuery.safeParse(req.query);
@@ -96,6 +117,22 @@ export function apiRoutes(deps: { db: Db; storage: Storage; secret: string }) {
       const f = await ownedFinding(db, req.projectId, p.data.id);
       if (!f) return notFound(reply);
       return findingDetail(f);
+    });
+
+    app.get('/v1/findings/:id/prompt', async (req, reply) => {
+      const p = idParam.safeParse(req.params);
+      if (!p.success) return bad(reply, p.error.issues);
+      const f = await ownedFinding(db, req.projectId, p.data.id);
+      if (!f) return notFound(reply);
+      const [occurrence] = await db.select({ runId: findingOccurrences.agentRunId, n: steps.n })
+        .from(findingOccurrences).innerJoin(steps, eq(findingOccurrences.stepId, steps.id))
+        .where(eq(findingOccurrences.findingId, f.id)).orderBy(asc(steps.n)).limit(1);
+      const rows = occurrence ? await db.select().from(steps).where(and(eq(steps.agentRunId, occurrence.runId), sql`${steps.n} <= ${occurrence.n}`)).orderBy(asc(steps.n)) : [];
+      const repro: PromptStep[] = rows.map((s) => ({ n: s.n, action: s.actionJson, locator: s.locatorJson ?? null, intent: s.intent }));
+      const signals = rows.flatMap((s) => s.signalsJson ?? []);
+      const replay = occurrence ? replayUrl(process.env.GREMLIN_WEB_URL ?? 'http://localhost:3200', occurrence.runId, occurrence.n, f.id) : null;
+      const test = playwrightTest(f, repro, f.url ? new URL(f.url).origin : null);
+      return { prompt: fixPrompt({ finding: f, steps: repro, signals, replay, test }) };
     });
 
     app.patch('/v1/findings/:id', async (req, reply) => {
@@ -130,7 +167,7 @@ export function apiRoutes(deps: { db: Db; storage: Storage; secret: string }) {
       const { scan, baseUrl } = owned;
       const [runs, finds, [usage]] = await Promise.all([
         db.select().from(agentRuns).where(eq(agentRuns.scanId, scan.id)).orderBy(asc(agentRuns.t0), asc(agentRuns.id)),
-        db.select().from(findings).where(eq(findings.scanId, scan.id)).orderBy(asc(findings.priority), desc(findings.createdAt)),
+        db.select().from(findings).where(inScan(scan.id)).orderBy(asc(findings.priority), desc(findings.createdAt)),
         db
           .select({
             usd: sql<number>`coalesce(sum(${llmUsage.costUsd}), 0)`,
@@ -170,7 +207,7 @@ export function apiRoutes(deps: { db: Db; storage: Storage; secret: string }) {
       if (!p.success) return bad(reply, p.error.issues);
       if (!q.success) return bad(reply, q.error.issues);
       if (!(await ownedScan(db, req.projectId, p.data.id))) return notFound(reply);
-      const conds = [eq(findings.scanId, p.data.id)];
+      const conds = [inScan(p.data.id)];
       if (q.data.status) conds.push(eq(findings.status, q.data.status));
       if (q.data.priority) conds.push(eq(findings.priority, q.data.priority));
       const rows = await db

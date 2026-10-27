@@ -197,6 +197,31 @@ describe('auth and CORS', () => {
 });
 
 describe('projects and findings', () => {
+  it('shows a deduplicated finding on the later scan that reproduced it', async () => {
+    const [original] = await db.select().from(scans).where(eq(scans.id, scanId));
+    const [repeat] = await db.insert(scans).values({ environmentId: original!.environmentId, status: 'done' }).returning();
+    const [run] = await db.insert(agentRuns).values({ scanId: repeat!.id, kind: 'scan', status: 'finished' }).returning();
+    const [step] = await db.insert(steps).values({ agentRunId: run!.id, n: 1, tMs: 1, actionJson: { type: 'finish', reason: 'done', intent: 'finish' } }).returning();
+    await db.insert(findingOccurrences).values({ findingId: f1, agentRunId: run!.id, stepId: step!.id });
+    const detail = ApiScanDetail.parse((await get(`/v1/scans/${repeat!.id}`)).json());
+    expect(detail.findings.map((f) => f.id)).toContain(f1);
+    expect((await get(`/v1/scans/${repeat!.id}/findings`)).json().findings.map((f: { id: string }) => f.id)).toContain(f1);
+    const index = (await get(`/v1/projects/${projectA}/scans`)).json().scans;
+    expect(index.find((s: { id: string }) => s.id === repeat!.id).findingCount).toBe(1);
+    await db.delete(findingOccurrences).where(eq(findingOccurrences.stepId, step!.id));
+    await db.delete(steps).where(eq(steps.id, step!.id));
+    await db.delete(agentRuns).where(eq(agentRuns.id, run!.id));
+    await db.delete(scans).where(eq(scans.id, repeat!.id));
+  });
+
+  it('lists project scans with dashboard counts and isolates other projects', async () => {
+    const res = await get(`/v1/projects/${projectA}/scans`);
+    expect(res.statusCode).toBe(200);
+    const row = res.json().scans.find((s: { id: string }) => s.id === scanId);
+    expect(row).toMatchObject({ id: scanId, projectId: projectA, baseUrl: 'http://shop.test', findingCount: 2, p0: 0, p1: 1 });
+    expect((await get(`/v1/projects/${projectA}/scans`, keyB)).statusCode).toBe(404);
+  });
+
   it('lists only the key project', async () => {
     const body = ListProjectsResponse.parse((await get('/v1/projects')).json());
     expect(body.projects.map((p) => p.id)).toEqual([projectA]);
@@ -222,6 +247,15 @@ describe('projects and findings', () => {
     expect(f.occurrences).toHaveLength(1);
     expect(f.occurrences[0]!.screenshotUrl).toMatch(/^\/v1\/files\/runs\/r\/s1\.png\?expires=\d+&sig=[0-9a-f]+$/);
     expect(f.screenshotUrls).toEqual([f.occurrences[0]!.screenshotUrl]);
+  });
+
+  it('provides the same actionable fix handoff used by the plugin, through REST', async () => {
+    const res = await get(`/v1/findings/${f1}/prompt`);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().prompt).toContain('Cart crashes');
+    expect(res.json().prompt).toContain('Reproduction steps');
+    expect(res.json().prompt).toContain(`/runs/${runId}?step=1&finding=${f1}`);
+    expect((await get(`/v1/findings/${f1}/prompt`, keyB)).statusCode).toBe(404);
   });
 
   it('does not leak findings across projects', async () => {

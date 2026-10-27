@@ -9,7 +9,7 @@ const FIXTURES = join(import.meta.dirname, 'fixtures');
  * Minimal fixture server for the engine tests: serves `test/fixtures/*.html`, and `POST /api/cart?n=<count>`
  * answers 200 for the first add and 500 from the second on (stateless, so every run sees the same bug).
  */
-export async function startFixtureServer(): Promise<{ url: string; close(): Promise<void> }> {
+export async function startFixtureServer(port = 0): Promise<{ url: string; close(): Promise<void> }> {
   const server = createServer((req, res) => {
     const u = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (u.pathname === '/api/cart') {
@@ -42,10 +42,10 @@ export async function startFixtureServer(): Promise<{ url: string; close(): Prom
       },
     );
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
+  const { port: boundPort } = server.address() as AddressInfo;
   return {
-    url: `http://127.0.0.1:${port}`,
+    url: `http://127.0.0.1:${boundPort}`,
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();

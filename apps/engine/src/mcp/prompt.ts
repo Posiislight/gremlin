@@ -44,6 +44,10 @@ function locatorExpr(l: Locator | null): string {
 
 /** Best-effort Playwright reproduction from the recorded steps (secrets typed by the agent stay as placeholders). */
 export function playwrightTest(finding: PromptFinding, steps: PromptStep[], baseUrl: string | null): string {
+  let entry = '/';
+  if (finding.url) {
+    try { const url = new URL(finding.url); entry = `${url.pathname}${url.search}`; } catch { /* default home */ }
+  }
   const lines: string[] = [];
   for (const s of steps) {
     const a = s.action;
@@ -84,11 +88,16 @@ export function playwrightTest(finding: PromptFinding, steps: PromptStep[], base
     `test(${q(`${finding.id}: ${finding.title}`)}, async ({ page, baseURL: configured }) => {`,
     `  const baseURL = configured ?? ${q(baseUrl ?? 'http://localhost:3000')};`,
     '  const errors: string[] = [];',
+    '  const failedRequests: string[] = [];',
     "  page.on('pageerror', (e) => errors.push(e.message));",
+    "  page.on('response', (r) => { if (r.status() >= 500) failedRequests.push(`${r.status()} ${r.url()}`); });",
+    `  await page.goto(new URL(${q(entry)}, baseURL).toString());`,
     ...lines,
+    "  await page.waitForLoadState('networkidle');",
     '  // Expected behaviour (must pass once fixed):',
     `  //   ${scrub(finding.expected).replace(/\n/g, ' ')}`,
     '  expect(errors).toEqual([]);',
+    '  expect(failedRequests).toEqual([]);',
     '});',
     '',
   ].join('\n');

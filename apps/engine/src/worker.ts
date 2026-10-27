@@ -8,6 +8,7 @@ import type { Llm } from '@gremlin/llm';
 import type { Storage } from '@gremlin/storage';
 import { processAgentJob, type AgentJob } from './persist.js';
 import { connectionFromUrl } from './queue.js';
+import { finalizeScan } from './orchestrator.js';
 
 export const AgentJobData = z.object({ scanId: z.string().min(1), runId: z.string().min(1), charter: Charter });
 
@@ -73,10 +74,10 @@ export async function startWorkers(deps: WorkerDeps): Promise<Workers> {
       throw new Error(message);
     }
     // processAgentJob marks the run 'error' (with message) itself and rethrows; BullMQ records the failure.
-    await processAgentJob(
+    try { await processAgentJob(
       { db: deps.db, storage: deps.storage, llm: deps.llm, browser: await getBrowser() },
       parsed.data,
-    );
+    ); } finally { await finalizeScan(deps.db, parsed.data.scanId); }
   };
 
   const worker = new Worker<AgentJob>('agent', processor, {

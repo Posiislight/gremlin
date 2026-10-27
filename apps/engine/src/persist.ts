@@ -89,6 +89,13 @@ const CLIP = 2_000;
 const clip = (s: string, n = CLIP) => (s.length <= n ? s : `${s.slice(0, n)}…`);
 const errMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+const stepRow = (runId: string, s: Step) => ({
+  agentRunId: runId, n: s.n, actionJson: s.action, locatorJson: s.locator,
+  intent: s.intent, expectation: s.expectation ?? null, tMs: Math.round(s.tMs),
+  stateHash: s.stateHash, screenshotKey: s.screenshotKey ?? null, signalsJson: s.signals,
+  reasoningSummary: s.reasoningSummary ?? null, outcome: s.outcome, error: s.error ?? null,
+});
+
 /** Raw, JSON-escaped and URL-encoded forms of every secret (same coverage as the agent loop). */
 function secretForms(secrets: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -162,6 +169,9 @@ export async function processAgentJob(deps: AgentJobDeps, job: AgentJob): Promis
         .from(noise)
         .where(and(eq(noise.projectId, projectId), sql`${noise.suppressed} > 0`));
 
+      const stepIds = new Map<number, string>();
+      const pendingSteps: Promise<void>[] = [];
+      let stepError: unknown;
       const result = await runAgent({
         browser: deps.browser,
         baseUrl: ctx.env.baseUrl,
@@ -174,17 +184,28 @@ export async function processAgentJob(deps: AgentJobDeps, job: AgentJob): Promis
         allowedActions: ctx.scan.allowedActions === 'full' ? 'full' : 'read_only',
         ...(deps.budgets ? { budgets: deps.budgets } : {}),
         ...(suppressedRows.length ? { suppressed: new Set(suppressedRows.map((r) => r.signature)) } : {}),
-        ...(deps.onEvent ? { onEvent: deps.onEvent } : {}),
+        onEvent: (event) => {
+          if (event.type === 'step') {
+            const clean = scrubJson(event.step);
+            const write = db.insert(stepsTable).values(stepRow(job.runId, clean))
+              .returning({ id: stepsTable.id }).then(([row]) => { stepIds.set(clean.n, row!.id); })
+              .catch((error: unknown) => { stepError = error; });
+            pendingSteps.push(write);
+          }
+          deps.onEvent?.(event);
+        },
       });
+      await Promise.all(pendingSteps);
+      if (stepError) throw stepError;
 
       // Steps: placeholder-form actions as the loop recorded them, scrubbed once more as a last line of defence.
       const runSteps = result.steps.map((s) => scrubJson(s));
-      const stepIds = new Map<number, string>();
-      if (runSteps.length) {
+      const missingSteps = runSteps.filter((s) => !stepIds.has(s.n));
+      if (missingSteps.length) {
         const rows = await db
           .insert(stepsTable)
           .values(
-            runSteps.map((s) => ({
+            missingSteps.map((s) => ({
               agentRunId: job.runId,
               n: s.n,
               actionJson: s.action,

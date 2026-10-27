@@ -286,6 +286,29 @@ describe('processAgentJob', () => {
 });
 
 describe('startWorkers', () => {
+  it('persists steps before the next navigator call finishes, for live SSE', async () => {
+    const { scanId } = await seed('live-progress');
+    const runId = await newRun(scanId);
+    const inner = fakeLlm(goodJudge, createUsageSink(db), [clickAdd, finish]);
+    let calls = 0;
+    let liveSteps = 0;
+    const llm: Llm = {
+      async callTool(role, req) {
+        if (role === 'navigator' && ++calls === 2) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          const recorded = await db.select().from(steps).where(eq(steps.agentRunId, runId));
+          liveSteps = recorded.length;
+        }
+        return inner.callTool(role, req);
+      },
+    };
+    await processAgentJob({ db, storage, llm, browser }, { scanId, runId, charter });
+    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(liveSteps).toBeGreaterThan(0);
+    const recorded = await db.select().from(steps).where(eq(steps.agentRunId, runId));
+    expect(new Set(recorded.map((s) => s.n)).size).toBe(recorded.length);
+  }, 120_000);
+
   it('consumes the agent queue, survives a failing job, and shuts down cleanly', async () => {
     const prefix = `gremlin-test-${randomBytes(6).toString('hex')}`;
     const redisUrl = process.env.REDIS_URL!;

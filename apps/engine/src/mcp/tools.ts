@@ -17,6 +17,7 @@ import {
   type Db,
 } from '@gremlin/db';
 import type { Queues } from '../queue.js';
+import { inScan } from '../scan-findings.js';
 import { fixPrompt, playwrightTest, replayUrl, scrub, type PromptStep } from './prompt.js';
 
 export interface McpDeps {
@@ -26,7 +27,7 @@ export interface McpDeps {
   webUrl?: string;
 }
 
-const TERMINAL = new Set(['done', 'failed', 'cancelled', 'completed', 'error']);
+const TERMINAL = new Set(['done', 'partial', 'failed', 'cancelled', 'completed', 'error']);
 const MAX_WAIT_S = 55;
 
 class ToolError extends Error {}
@@ -109,7 +110,7 @@ export function registerTools(server: McpServer, projectId: string, deps: McpDep
     const findingRows = await db
       .select({ status: findings.status, count: sql<number>`count(*)::int` })
       .from(findings)
-      .where(eq(findings.scanId, scanId))
+      .where(inScan(scanId))
       .groupBy(findings.status);
     return {
       scanId: scan.id,
@@ -217,7 +218,8 @@ export function registerTools(server: McpServer, projectId: string, deps: McpDep
           .returning();
         return scan!.id;
       });
-      await queues.discovery.add('discover', { scanId });
+      const entry = a.url ? new URL(a.url) : null;
+      await queues.discovery.add('discover', { scanId, ...(entry ? { startPath: `${entry.pathname}${entry.search}` } : {}) });
       return { scanId, status: 'queued', note: 'Call wait_scan or get_scan to follow progress.' };
     }),
   );
@@ -274,7 +276,7 @@ export function registerTools(server: McpServer, projectId: string, deps: McpDep
         .where(
           and(
             eq(findings.projectId, projectId),
-            eq(findings.scanId, a.scanId),
+            inScan(a.scanId),
             ...(a.status ? [eq(findings.status, a.status)] : []),
           ),
         )

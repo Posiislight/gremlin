@@ -4,11 +4,12 @@ import { z } from 'zod';
 import type { ScanEvent } from '@gremlin/contract';
 import { agentRuns, findings, scans, steps, type Db } from '@gremlin/db';
 import { authenticate } from '../auth.js';
+import { inScan } from '../scan-findings.js';
 import { corsHeaders } from '../cors.js';
 import { ownedScan } from './access.js';
 import { summarizeFindings } from './serialize.js';
 
-const TERMINAL = new Set(['done', 'failed', 'error', 'completed', 'cancelled']);
+const TERMINAL = new Set(['done', 'partial', 'failed', 'error', 'completed', 'cancelled']);
 const MAX_STREAM_MS = 60 * 60 * 1000;
 
 export interface EventsOptions {
@@ -82,7 +83,7 @@ export function eventRoutes(opts: EventsOptions) {
             send({ type: 'step', runId: s.agentRunId, stepId: s.id, n: s.n, intent: s.intent, outcome: s.outcome, tMs: s.tMs });
           }
         }
-        const finds = await summarizeFindings(db, await db.select().from(findings).where(eq(findings.scanId, scanId)));
+        const finds = await summarizeFindings(db, await db.select().from(findings).where(inScan(scanId)));
         for (const f of finds) {
           const s = `${f.status}|${f.priority}|${f.title}|${f.occurrenceCount}`;
           if (findingSig.get(f.id) !== s) {

@@ -7,6 +7,8 @@
     ".": "./src/server.ts"
   },
   "scripts": {
+    "demo": "tsx src/scripts/demo.ts",
+    "demo:check": "tsx src/scripts/demo-check.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "start": "tsx src/main.ts",

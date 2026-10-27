@@ -146,7 +146,7 @@ describe('POST /v1/scans', () => {
     const jobs = await queues.discovery.getJobs(['waiting', 'delayed', 'active']);
     const mine = jobs.filter((j) => j.data.scanId === scanId);
     expect(mine).toHaveLength(1);
-    expect(mine[0]!.data).toEqual({ scanId });
+    expect(mine[0]!.data).toEqual({ scanId, startPath: '/some/path?x=1' });
 
     // second scan on the same origin reuses the environment row
     const res2 = await post({ url: 'http://localhost:3000', authorised: true, allowedActions: 'full' }, keyA);

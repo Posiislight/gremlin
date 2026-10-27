@@ -5,6 +5,7 @@
   "packageManager": "pnpm@12.15.0",
   "engines": { "node": ">=24" },
   "scripts": {
+    "demo": "pnpm --filter @gremlin/engine demo",
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck"
