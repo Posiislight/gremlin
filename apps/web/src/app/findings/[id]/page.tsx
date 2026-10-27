@@ -62,7 +62,7 @@ export default async function FindingPage({ params }: { params: Promise<{ id: st
                   <Link key={i} href={first ? buildReplayLink('', first.runId, { step: Math.max(1, first.stepN - (f.screenshotUrls.length - 1 - i)), finding: f.id }) : '#'}
                     className="group relative block overflow-hidden rounded-[10px] border border-ink-700 bg-ink-900 transition-colors hover:border-lime/50">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={u} alt={`Screenshot ${i + 1}`} className="aspect-[1.6] w-full object-cover object-top" />
+                    <img src={u} alt={`Screenshot ${i + 1}`} className="aspect-[1.6] w-full" />
                     <span className="absolute bottom-2 left-2 rounded bg-ink-950/85 px-1.5 py-0.5 font-mono text-[10.5px] text-ink-100 opacity-0 transition-opacity group-hover:opacity-100">open in replay</span>
                   </Link>
                 ))}

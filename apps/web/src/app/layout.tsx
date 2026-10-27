@@ -25,7 +25,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <span className="hidden h-4 w-px bg-ink-600 sm:block" />
             <nav className="flex items-center gap-1 font-mono text-[12px] text-ink-300">
               <Link className="rounded px-2 py-1 hover:bg-ink-800 hover:text-ink-50" href="/">scans</Link>
-              <Link className="rounded px-2 py-1 hover:bg-ink-800 hover:text-ink-50" href="/compare?a=run_demo&b=run_fixed">compare</Link>
             </nav>
             <div className="ml-auto hidden font-mono text-[11px] text-ink-400 sm:block">autonomous QA swarm</div>
           </div>

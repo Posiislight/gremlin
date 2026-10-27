@@ -34,7 +34,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
         </div>
       </section>
 
-      <NewScan mock={mock} defaultUrl={mock ? 'https://shop.example.test' : ''} />
+      <NewScan mock={mock} defaultUrl={mock ? 'https://shop.example.test' : (process.env.GREMLIN_DEMO_TARGET_URL ?? '')} />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0 space-y-4">

@@ -100,3 +100,20 @@ button, a { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* replay studio layout: stacked on mobile, 3 columns + full-width timeline on desktop */
+.studio {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'player' 'timeline' 'steps' 'dev';
+}
+@media (min-width: 1024px) {
+  .studio {
+    grid-template-columns: 290px minmax(0, 1fr) 380px;
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas: 'steps player dev' 'timeline timeline timeline';
+    height: calc(100dvh - 12.5rem);
+    min-height: 520px;
+  }
+}

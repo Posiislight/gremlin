@@ -104,7 +104,10 @@ describe('rrweb segments', () => {
   it('computes clamped offsets', () => {
     expect(offsetInSegment(seg(1, 3000, 6000), 4500)).toBe(1500);
     expect(offsetInSegment(seg(1, 3000, 6000), 100)).toBe(0);
-    expect(offsetInSegment(seg(1, 3000, 6000), 9000)).toBe(3000);
+    // rrweb fast-forward applies events strictly before the requested offset.
+    // Include the final mutation when seeking to or past the segment end.
+    expect(offsetInSegment(seg(1, 3000, 6000), 6000)).toBe(3001);
+    expect(offsetInSegment(seg(1, 3000, 6000), 9000)).toBe(3001);
   });
 });
 

@@ -94,7 +94,9 @@ export function segmentForTime(segments: readonly RrwebSegment[], tMs: number): 
 
 /** Offset passed to rrweb Replayer.goto(): ms since the first event of the loaded segment. */
 export function offsetInSegment(segment: Pick<RrwebSegment, 'startMs' | 'endMs'>, tMs: number): number {
-  return clamp(tMs - segment.startMs, 0, Math.max(0, segment.endMs - segment.startMs));
+  const duration = Math.max(0, segment.endMs - segment.startMs);
+  // rrweb seeks cast events with timestamp < target; include the last mutation at the boundary.
+  return tMs >= segment.endMs ? duration + 1 : clamp(tMs - segment.startMs, 0, duration);
 }
 
 /** Screenshot to show at tMs: the latest step with one at/before the playhead, else the first available. */
