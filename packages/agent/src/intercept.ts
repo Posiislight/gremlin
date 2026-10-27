@@ -15,8 +15,13 @@ export type InterceptClient = {
   context: BrowserContext;
   /** Pure verdict for a request (must not throw; a rule failure is a deny). */
   decide(req: PausedRequest): Decision;
-  /** Record a denial as a policy signal. `reason` is kept in the handle's details. */
+  /** Record a denial of a request KNOWN to come from this context as a policy signal. */
   record(req: PausedRequest, reason: string): void;
+  /**
+   * Note a request of unknown origin that was failed because this client's policy would deny it. It is NOT a
+   * signal of this context (the request may belong to any context); kept for diagnostics only.
+   */
+  recordUnattributed?(req: PausedRequest, reason: string): void;
 };
 
 type Paused = {
@@ -29,10 +34,25 @@ type Paused = {
 
 type FrameTree = { frame: { id: string }; childFrames?: FrameTree[] };
 type Attribution = { kind: 'client'; client: InterceptClient } | { kind: 'other' } | { kind: 'unknown' };
+type TargetInfo = { targetId: string; type?: string; browserContextId?: string; openerId?: string };
 
-const TOMBSTONE_MS = 60_000;
+/** A tracking session on one page: Page domain events map every frame of the page to its context. */
+type Track = { session: CDPSession; targetId: string; cid: string; frames: Set<string>; closed: boolean };
+
 const PRUNE_EVERY_MS = 15_000;
 const MAX_FRAMES = 20_000;
+
+/** Diagnostic sizes of the attribution maps (tests). */
+export type InterceptStats = {
+  clients: number;
+  trackedPages: number;
+  targets: number;
+  destroyedTargets: number;
+  frames: number;
+  goneFrames: number;
+  openers: number;
+  paused: number;
+};
 
 /**
  * One browser-level CDP `Fetch` interceptor per Browser, shared by every context that installed a policy.
@@ -43,21 +63,32 @@ const MAX_FRAMES = 20_000;
  * cannot see a popup before its 'page' event (the first navigation is already in flight) and cannot address
  * auto-attached child sessions.
  *
- * Attribution: frameId -> target -> browserContextId (workers report their owner frame). OOPIF frames, which
- * are not browser targets, are resolved through Page.getFrameTree of the pages of ALL contexts of the browser
- * (so a frame of an unrelated no-policy context is recognised as "another context", not as unknown).
- * An attribution has three outcomes: a policy client, "another context" (continued untouched: other contexts
- * are never affected), or unknown.
+ * Attribution (frameId -> context), tracked EAGERLY while any client is registered:
+ * - targets (pages, popups, out-of-process iframes; their main frame id is the target id) from browser-level
+ *   target discovery: targetId -> browserContextId, and the opener of popups;
+ * - in-process iframes: every page of EVERY context of the browser (including contexts without a policy) gets
+ *   a tracking CDP session with `Page.enable`; `Page.frameAttached` / `Page.frameNavigated` (and an initial
+ *   `Page.getFrameTree`) record frame -> context before the frame can issue its first request. New contexts are
+ *   discovered from target creation, new pages from the context's 'page' event. Sessions are detached when the
+ *   page closes and when the last client unregisters.
+ * - as a last resort for a frame seen by no event yet, the frame trees of all pages are scanned.
  *
- * Tombstones: when a target is destroyed its target -> context mapping is KEPT for TOMBSTONE_MS (or until its
- * context is unregistered), because pages issue requests while closing (sendBeacon / keepalive fetch in
- * `pagehide`) after the destroyed event. A timer prunes tombstones; it only runs while a client is registered
- * and is unref'd and cleared on the last unregister.
+ * Tombstones: a destroyed target, a detached frame and the frames of a closed page KEEP their mapping for
+ * `tombstoneMs` (60 s; or until their context is unregistered), because pages issue requests while closing
+ * (sendBeacon / keepalive fetch in `pagehide`) after they are gone. A timer prunes tombstones; it only runs while
+ * a client is registered and is unref'd and cleared on the last unregister.
  *
- * Unknown requests FAIL CLOSED: if any registered policy would deny the request (payment host, foreign
- * navigation, read_only write, ...) it is failed and recorded with reason `unattributed: ...` on those clients;
- * an unknown request no policy would deny is continued (it cannot violate any policy). Attribution errors are
- * treated as unknown.
+ * An attribution has three outcomes:
+ * - a policy client: its policy decides; a denial is recorded in that client's `blocked` list;
+ * - another context (no policy): continued untouched - other contexts are never affected;
+ * - unknown (no frameId - e.g. shared workers -, a frame no event, tombstone or scan maps, or an attribution
+ *   error). Rule: it is FAILED if at least one registered policy would deny it, otherwise continued. A request of
+ *   unknown origin is never recorded as a signal of any context (it may belong to an unrelated one); each client
+ *   whose policy would deny it notes it in its `unattributed` list (diagnostics) instead.
+ * Safety invariant: a request KNOWN to come from a read_only context is never allowed to write (it is judged by
+ * that context's policy); a request whose context cannot be determined may be failed only if some policy would
+ * deny it. With eager tracking, unknowns are limited to sources without a frame (shared workers, browser
+ * requests) and frames nested inside out-of-process iframes that are created and used before any scan.
  *
  * Every paused request is released exactly once (continue or fail); release errors (target closed, stale id)
  * are ignored.
@@ -79,52 +110,78 @@ export class BrowserInterceptor {
     return p;
   }
 
+  /** How long a destroyed target / gone frame stays attributable. Tests may lower it. */
+  tombstoneMs = 60_000;
+
+  private readonly browser: Browser;
+  private readonly session: CDPSession;
   private readonly clients = new Map<string, InterceptClient>();
   private readonly targetCtx = new Map<string, string>();
   private readonly destroyedAt = new Map<string, number>();
-  private readonly frameCtx = new Map<string, string>();
-  private readonly pageSessions = new WeakMap<Page, CDPSession>();
+  private readonly opener = new Map<string, string>(); // popup target id -> opener target id
+  private readonly openedAt = new Map<string, number>(); // popup target id -> when it was created
+  private readonly frameCtx = new Map<string, string>(); // frame id -> context id (in-process frames)
+  private readonly framePage = new Map<string, string>(); // frame id -> page target id
+  private readonly frameGoneAt = new Map<string, number>();
+  private readonly tracked = new Map<Page, Track>();
+  private readonly tracking$ = new Map<Page, Promise<Track | null>>();
+  private readonly hooked = new Map<BrowserContext, (p: Page) => void>();
+  private readonly extraSessions = new WeakMap<Page, CDPSession>();
+  private tracking = false;
   private pending = 0;
   private scanning: Promise<void> | null = null;
   private pruner: NodeJS.Timeout | null = null;
 
-  private constructor(
-    private readonly browser: Browser,
-    private readonly session: CDPSession,
-  ) {}
+  private constructor(browser: Browser, session: CDPSession) {
+    this.browser = browser;
+    this.session = session;
+  }
 
   private listen(): void {
     const s = this.session;
-    const note = (e: { targetInfo: { targetId: string; browserContextId?: string } }) => {
-      if (e.targetInfo.browserContextId) {
-        this.targetCtx.set(e.targetInfo.targetId, e.targetInfo.browserContextId);
-        this.destroyedAt.delete(e.targetInfo.targetId);
+    const note = (e: { targetInfo: TargetInfo }) => {
+      const t = e.targetInfo;
+      if (t.browserContextId) {
+        this.targetCtx.set(t.targetId, t.browserContextId);
+        this.destroyedAt.delete(t.targetId);
+      }
+      if (t.openerId && !this.opener.has(t.targetId)) {
+        this.opener.set(t.targetId, t.openerId);
+        this.openedAt.set(t.targetId, Date.now());
       }
     };
-    s.on('Target.targetCreated', note);
+    s.on('Target.targetCreated', (e: { targetInfo: TargetInfo }) => {
+      note(e);
+      // A new page may belong to a context created since the last discovery: hook it (eager frame tracking).
+      if (this.tracking && e.targetInfo.type === 'page') void this.discover().catch(() => undefined);
+    });
     s.on('Target.targetInfoChanged', note);
     // Tombstone: keep the mapping (see class comment); only remember when it died.
     s.on('Target.targetDestroyed', (e: { targetId: string }) => {
       if (this.targetCtx.has(e.targetId)) this.destroyedAt.set(e.targetId, Date.now());
+      else this.dropOpener(e.targetId);
     });
     s.on('Fetch.requestPaused', (e: Paused) => void this.onPaused(e));
   }
 
-  /** Fetch.enable/disable calls are serialised so a late register and an early unregister cannot interleave. */
+  /** Fetch.enable/disable and tracking start/stop are serialised so a late register and an early unregister cannot interleave. */
   private op: Promise<void> = Promise.resolve();
   private enabled = false;
   private sync(): Promise<void> {
     this.op = this.op.then(async () => {
       const want = this.clients.size > 0;
       this.setPruner(want);
+      if (want && !this.tracking) {
+        this.tracking = true;
+        await this.session.send('Target.setDiscoverTargets', { discover: true });
+        await this.discover();
+      } else if (!want && this.tracking) {
+        this.stopTracking();
+      }
       if (want === this.enabled) return;
       this.enabled = want;
-      if (want) {
-        await this.session.send('Target.setDiscoverTargets', { discover: true });
-        await this.session.send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
-      } else {
-        await this.session.send('Fetch.disable');
-      }
+      if (want) await this.session.send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
+      else await this.session.send('Fetch.disable');
     });
     return this.op.catch(() => undefined);
   }
@@ -140,15 +197,45 @@ export class BrowserInterceptor {
     }
   }
 
-  private prune(all = false): void {
+  /** Drop tombstones older than tombstoneMs (all of them with `all`). Public for tests. */
+  prune(all = false): void {
     const now = Date.now();
     for (const [t, at] of this.destroyedAt) {
-      if (all || now - at > TOMBSTONE_MS) {
+      if (all || now - at > this.tombstoneMs) {
         this.destroyedAt.delete(t);
         this.targetCtx.delete(t);
+        this.dropOpener(t);
       }
     }
-    while (this.frameCtx.size > MAX_FRAMES) this.frameCtx.delete(this.frameCtx.keys().next().value as string);
+    for (const [f, at] of this.frameGoneAt) if (all || now - at > this.tombstoneMs) this.forgetFrame(f);
+    while (this.frameCtx.size > MAX_FRAMES) this.forgetFrame(this.frameCtx.keys().next().value as string);
+  }
+
+  private dropOpener(t: string): void {
+    this.opener.delete(t);
+    this.openedAt.delete(t);
+  }
+
+  /** Number of popup targets `page` opened at or after `sinceMs` (Date.now() clock), closed ones included. */
+  async popupsOpenedBy(page: Page, sinceMs: number): Promise<number> {
+    let root = this.tracked.get(page)?.targetId;
+    if (!root) {
+      try {
+        const s = await this.sessionFor(page);
+        root = ((await s.send('Target.getTargetInfo')) as { targetInfo: TargetInfo }).targetInfo.targetId;
+      } catch {
+        return 0;
+      }
+    }
+    let n = 0;
+    for (const [t, o] of this.opener) if (o === root && (this.openedAt.get(t) ?? 0) >= sinceMs) n++;
+    return n;
+  }
+
+  private forgetFrame(f: string): void {
+    this.frameCtx.delete(f);
+    this.framePage.delete(f);
+    this.frameGoneAt.delete(f);
   }
 
   /** Requests currently held (paused and not yet released) for this browser. Diagnostic / tests. */
@@ -161,7 +248,25 @@ export class BrowserInterceptor {
     return this.enabled;
   }
 
-  /** Start judging the client's context. Resolves once Fetch interception is active. */
+  /** The context id a frame (or target) is currently attributed to, without scanning. Diagnostic / tests. */
+  contextOfFrame(frameId: string): string | undefined {
+    return this.frameCtx.get(frameId) ?? this.targetCtx.get(frameId);
+  }
+
+  stats(): InterceptStats {
+    return {
+      clients: this.clients.size,
+      trackedPages: this.tracked.size,
+      targets: this.targetCtx.size,
+      destroyedTargets: this.destroyedAt.size,
+      frames: this.frameCtx.size,
+      goneFrames: this.frameGoneAt.size,
+      openers: this.opener.size,
+      paused: this.pending,
+    };
+  }
+
+  /** Start judging the client's context. Resolves once Fetch interception (and frame tracking) is active. */
   async register(client: InterceptClient): Promise<void> {
     this.clients.set(client.contextId, client);
     await this.sync();
@@ -170,15 +275,119 @@ export class BrowserInterceptor {
   /** Stop judging a context; interception is switched off when no client is left (the session itself lives as long as the browser). */
   async unregister(contextId: string): Promise<void> {
     this.clients.delete(contextId);
-    for (const [f, c] of this.frameCtx) if (c === contextId) this.frameCtx.delete(f);
+    for (const [f, c] of this.frameCtx) if (c === contextId && this.frameGoneAt.has(f)) this.forgetFrame(f);
     for (const [t, c] of this.targetCtx) {
       if (c === contextId && this.destroyedAt.has(t)) {
         this.destroyedAt.delete(t);
         this.targetCtx.delete(t);
+        this.dropOpener(t);
       }
     }
     await this.sync();
   }
+
+  // ---- eager frame tracking -------------------------------------------------------------------------------
+
+  /** Hook every context of the browser (new pages) and track all their existing pages. */
+  private async discover(): Promise<void> {
+    if (!this.tracking) return;
+    const jobs: Promise<unknown>[] = [];
+    for (const context of this.browser.contexts()) {
+      if (!this.hooked.has(context)) {
+        const onPage = (p: Page) => void this.track(p);
+        this.hooked.set(context, onPage);
+        context.on('page', onPage);
+        context.once('close', () => {
+          context.off('page', onPage);
+          this.hooked.delete(context);
+        });
+      }
+      for (const page of context.pages()) jobs.push(this.track(page));
+    }
+    await Promise.all(jobs);
+  }
+
+  private stopTracking(): void {
+    this.tracking = false;
+    for (const [context, onPage] of this.hooked) context.off('page', onPage);
+    this.hooked.clear();
+    for (const t of this.tracked.values()) {
+      t.closed = true;
+      void t.session.detach().catch(() => undefined);
+    }
+    this.tracked.clear();
+    this.tracking$.clear();
+    this.frameCtx.clear();
+    this.framePage.clear();
+    this.frameGoneAt.clear();
+  }
+
+  private noteFrame(t: Track, frameId: string): void {
+    t.frames.add(frameId);
+    if (!t.cid || t.closed) return;
+    this.frameCtx.set(frameId, t.cid);
+    this.framePage.set(frameId, t.targetId);
+    this.frameGoneAt.delete(frameId);
+  }
+
+  private frameGone(frameId: string): void {
+    if (this.frameCtx.has(frameId) && !this.frameGoneAt.has(frameId)) this.frameGoneAt.set(frameId, Date.now());
+  }
+
+  /** Give a page a tracking session (once). Resolves when its current frames are mapped. */
+  private track(page: Page): Promise<Track | null> {
+    let p = this.tracking$.get(page);
+    if (p) return p;
+    p = (async () => {
+      if (!this.tracking || page.isClosed()) return null;
+      let session: CDPSession;
+      try {
+        session = await page.context().newCDPSession(page);
+      } catch {
+        return null; // page closed
+      }
+      const t: Track = { session, targetId: '', cid: '', frames: new Set(), closed: false };
+      const untrack = () => {
+        if (t.closed) return;
+        t.closed = true;
+        if (this.tracked.get(page) === t) this.tracked.delete(page);
+        this.tracking$.delete(page);
+        for (const f of t.frames) this.frameGone(f);
+        void session.detach().catch(() => undefined);
+      };
+      session.on('Page.frameAttached', (e: { frameId: string }) => this.noteFrame(t, e.frameId));
+      session.on('Page.frameNavigated', (e: { frame: { id: string } }) => this.noteFrame(t, e.frame.id));
+      session.on('Page.frameDetached', (e: { frameId: string }) => this.frameGone(e.frameId));
+      page.once('close', untrack);
+      try {
+        const { targetInfo } = (await session.send('Target.getTargetInfo')) as { targetInfo: TargetInfo };
+        if (!targetInfo.browserContextId) throw new Error('no browserContextId');
+        t.targetId = targetInfo.targetId;
+        t.cid = targetInfo.browserContextId;
+        for (const f of [targetInfo.targetId, ...t.frames]) this.noteFrame(t, f);
+        if (!this.tracking || t.closed) {
+          untrack();
+          return null;
+        }
+        this.tracked.set(page, t);
+        await session.send('Page.enable');
+        this.addTree(t, ((await session.send('Page.getFrameTree')) as { frameTree: FrameTree }).frameTree);
+        return t;
+      } catch {
+        untrack();
+        return null;
+      }
+    })();
+    this.tracking$.set(page, p);
+    return p;
+  }
+
+  private addTree(t: Track, tree: FrameTree): void {
+    this.noteFrame(t, tree.frame.id);
+    tree.childFrames?.forEach((c) => this.addTree(t, c));
+  }
+
+  // ---- judging --------------------------------------------------------------------------------------------
 
   private async onPaused(e: Paused): Promise<void> {
     this.pending++;
@@ -217,11 +426,16 @@ export class BrowserInterceptor {
           block = true;
         }
       } else if (a.kind === 'unknown') {
+        // Fail only if some policy would deny it; never record it as a signal of a context (see class comment).
         for (const c of this.clients.values()) {
           const d = c.decide(req);
           if (!d.allow) {
-            c.record(req, `unattributed: ${d.reason}`);
             block = true;
+            try {
+              c.recordUnattributed?.(req, `unattributed: ${d.reason}`);
+            } catch {
+              /* diagnostics only */
+            }
           }
         }
       }
@@ -245,10 +459,12 @@ export class BrowserInterceptor {
   }
 
   private async sessionFor(page: Page): Promise<CDPSession> {
-    let ps = this.pageSessions.get(page);
+    const t = this.tracked.get(page);
+    if (t && !t.closed) return t.session;
+    let ps = this.extraSessions.get(page);
     if (!ps) {
       ps = await page.context().newCDPSession(page);
-      this.pageSessions.set(page, ps);
+      this.extraSessions.set(page, ps);
     }
     return ps;
   }
@@ -269,18 +485,56 @@ export class BrowserInterceptor {
     return ids;
   }
 
-  /** Map every frame (incl. out-of-process iframes) of every page of the browser to its context. */
+  /**
+   * A predicate telling whether a frame id belongs to `page`: its current frame tree, any frame ever tracked for
+   * it (also frames removed since), and the frames of popups it opened (transitively, via the target opener).
+   */
+  async ownedBy(page: Page): Promise<(frameId: string) => boolean> {
+    const ids = await this.frameIdsOf(page);
+    let root = this.tracked.get(page)?.targetId;
+    if (!root) {
+      for (const id of ids) if (this.targetCtx.has(id)) root = id; // only the main frame id is a page target id
+    }
+    const pages = new Set<string>(root ? [root] : []);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const [t, o] of this.opener) {
+        if (pages.has(o) && !pages.has(t)) {
+          pages.add(t);
+          grew = true;
+        }
+      }
+    }
+    return (f) => ids.has(f) || pages.has(f) || pages.has(this.framePage.get(f) ?? '');
+  }
+
+  /** Map every frame of every page of the browser to its context (fallback for frames no event mapped yet). */
   private scanFrameTrees(): Promise<void> {
     this.scanning ??= (async () => {
       try {
+        const jobs: Promise<unknown>[] = [];
         for (const context of this.browser.contexts()) {
           for (const page of context.pages()) {
-            const ids = await this.frameIdsOf(page);
-            // The main frame's id is its page target's id, which tells us the context.
-            const cid = [...ids].map((id) => this.targetCtx.get(id)).find((c) => c !== undefined);
-            if (cid) for (const id of ids) this.frameCtx.set(id, cid);
+            jobs.push(
+              (async () => {
+                const t = this.tracking ? await this.track(page) : null;
+                if (t && !t.closed) {
+                  try {
+                    this.addTree(t, ((await t.session.send('Page.getFrameTree')) as { frameTree: FrameTree }).frameTree);
+                  } catch {
+                    /* page closed */
+                  }
+                  return;
+                }
+                const ids = await this.frameIdsOf(page);
+                // The main frame's id is its page target's id, which tells us the context.
+                const cid = [...ids].map((id) => this.targetCtx.get(id)).find((c) => c !== undefined);
+                if (cid) for (const id of ids) this.frameCtx.set(id, cid);
+              })(),
+            );
           }
         }
+        await Promise.all(jobs);
       } finally {
         this.scanning = null;
       }

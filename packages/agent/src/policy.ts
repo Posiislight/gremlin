@@ -17,16 +17,39 @@ export type PolicyHandle = {
   blocked: Signal[];
   /** Parallel to `blocked`: CDP resource type, whether it was a redirect hop, and whether the URL had a query/fragment (stripped for hops). */
   details: Array<{ resourceType: string; isRedirect: boolean; hadQuery: boolean; frameId: string | undefined; reason: string }>;
+  /**
+   * Requests whose originating context could NOT be determined (e.g. shared workers) that were failed because
+   * this policy would deny them. Diagnostics only: they are not signals of this context and are not in
+   * `blocked` / `count()` (the request may have belonged to any context of the browser).
+   */
+  unattributed: UnattributedBlock[];
   /** Number of blocked requests so far; execute() diffs it around an action. */
   count(): number;
-  /** Blocks recorded after `since` (a `count()` snapshot) whose frame belongs to the page's current frame tree. */
+  /**
+   * Blocks recorded after `since` (a `count()` snapshot) whose frame belongs to the page: its frame tree (also
+   * frames removed meanwhile) and the frames of popups it opened (so a click opening a blocked popup counts).
+   */
   blockedFor(page: Page, since: number): Promise<number>;
+  /** Number of popups `page` opened at or after `sinceMs` (a Date.now() value), as seen by Chromium target discovery. */
+  popupsOpenedBy(page: Page, sinceMs: number): Promise<number>;
   /** True while Chromium-level interception is switched on for this browser. */
   active(): boolean;
   /** Requests currently held paused by the interceptor for this browser (should return to 0 when idle). */
   paused(): number;
   /** Stop enforcing (also done when the context closes). */
   dispose(): Promise<void>;
+};
+
+export type UnattributedBlock = {
+  method: string;
+  /** Query/fragment stripped for redirect hops, as in `blocked`. */
+  url: string;
+  resourceType: string;
+  isRedirect: boolean;
+  frameId: string | undefined;
+  /** `unattributed: <rule>` */
+  reason: string;
+  tMs: number;
 };
 
 /**
@@ -45,8 +68,10 @@ export type PolicyHandle = {
  * - Service workers must be blocked: use createAgentContext (serviceWorkers: 'block'), otherwise a worker could
  *   answer requests without a network fetch, and its own requests cannot be attributed to the context.
  *   installPolicy warns (or throws with `requireSwBlock`) for contexts not marked via markServiceWorkersBlocked.
- * - Requests that cannot be attributed to any context (closed targets are tombstoned for 60 s, so closing pages
- *   are attributed; e.g. shared workers are not) FAIL CLOSED when some registered policy would deny them.
+ * - Attribution to a context is tracked eagerly (targets, and every frame of every page via Page events; gone
+ *   targets/frames are tombstoned for 60 s, so closing pages are attributed). Requests whose context cannot be
+ *   determined (e.g. shared workers) FAIL CLOSED when some registered policy would deny them; they are noted in
+ *   `unattributed` of the policies that would deny them, never in `blocked` (see intercept.ts).
  * - A read_only auth allowlist is matched on pathname segment boundaries; apiHosts/extraHosts are matched on
  *   host (and port when given).
  */
@@ -63,6 +88,7 @@ export async function installPolicy(context: BrowserContext, opts: PolicyOptions
   const t0 = now();
   const blocked: Signal[] = [];
   const details: PolicyHandle['details'] = [];
+  const unattributed: UnattributedBlock[] = [];
 
   const deny = (method: string, url: string, resourceType: string, isRedirect: boolean, frameId: string | undefined, reason: string) => {
     const s = safeUrl(url, isRedirect);
@@ -84,6 +110,10 @@ export async function installPolicy(context: BrowserContext, opts: PolicyOptions
     record(req, reason) {
       deny(req.method, req.url, req.resourceType, req.isRedirect, req.frameId, reason);
     },
+    recordUnattributed(req, reason) {
+      const s = safeUrl(req.url, req.isRedirect);
+      unattributed.push({ method: req.method, url: s.url, resourceType: req.resourceType, isRedirect: req.isRedirect, frameId: req.frameId, reason, tMs: now() - t0 });
+    },
   };
   const interceptor = await BrowserInterceptor.for(browser);
   await interceptor.register(client);
@@ -103,9 +133,19 @@ export async function installPolicy(context: BrowserContext, opts: PolicyOptions
   context.once('close', () => void dispose());
 
   const blockedFor = async (page: Page, since: number) => {
-    const frames = await interceptor.frameIdsOf(page);
-    return details.slice(since).filter((d) => d.frameId !== undefined && frames.has(d.frameId)).length;
+    const owned = await interceptor.ownedBy(page);
+    return details.slice(since).filter((d) => d.frameId !== undefined && owned(d.frameId)).length;
   };
 
-  return { blocked, details, count: () => blocked.length, blockedFor, active: () => interceptor.active(), paused: () => interceptor.paused(), dispose };
+  return {
+    blocked,
+    details,
+    unattributed,
+    count: () => blocked.length,
+    blockedFor,
+    popupsOpenedBy: (page, sinceMs) => interceptor.popupsOpenedBy(page, sinceMs),
+    active: () => interceptor.active(),
+    paused: () => interceptor.paused(),
+    dispose,
+  };
 }

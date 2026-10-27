@@ -13,8 +13,9 @@
     u.pathname = '/empty.html';
     window.open(u.href, '_blank');
   });
+  // Opens a popup 1s after the click, or when a test-provided gate (window.lateGate) resolves.
   document.getElementById('late').addEventListener('click', () => {
-    setTimeout(() => window.open('/empty.html', '_blank'), 1000);
+    (window.lateGate || new Promise((r) => setTimeout(r, 1000))).then(() => window.open('/empty.html', '_blank'));
   });
 </script>
 </body></html>

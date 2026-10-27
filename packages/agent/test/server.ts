@@ -45,8 +45,8 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-/** How long /stream keeps its response open after the first chunk. */
-export const STREAM_MS = 3000;
+/** Safety cap: how long /stream keeps its response open after the first chunk unless released earlier. */
+export const STREAM_MS = 30_000;
 
 export async function startFixtureServer(): Promise<{ url: string; close(): Promise<void>; connections(): number }> {
   let cartCalls = 0;
@@ -54,6 +54,7 @@ export async function startFixtureServer(): Promise<{ url: string; close(): Prom
   let lastCookie: string | null = null;
   let total = 0;
   const timers = new Set<NodeJS.Timeout>();
+  const streams = new Set<() => void>();
 
   const server = createServer((req, res) => {
     void handle(req, res).catch(() => {
@@ -110,18 +111,29 @@ export async function startFixtureServer(): Promise<{ url: string; close(): Prom
       return;
     }
     if (path === '/stream') {
+      // The tail is sent only when the test releases the stream (GET /stream-release), or after STREAM_MS.
       res.writeHead(200, { 'content-type': MIME['.html']! });
       res.write('<!doctype html><p id="early">EARLY</p>' + ' '.repeat(2048));
-      const t = setTimeout(() => {
+      const finish = () => {
+        clearTimeout(t);
         timers.delete(t);
-        res.end('<p>late</p>');
-      }, STREAM_MS);
+        streams.delete(finish);
+        if (!res.writableEnded) res.end('<p id="late">late</p>');
+      };
+      const t = setTimeout(finish, STREAM_MS);
       timers.add(t);
+      streams.add(finish);
       res.on('close', () => {
         clearTimeout(t);
         timers.delete(t);
+        streams.delete(finish);
       });
       return;
+    }
+    if (path === '/stream-release') {
+      const n = streams.size;
+      for (const f of [...streams]) f();
+      return json(res, 200, { released: n });
     }
     if (path === '/frame') {
       res.writeHead(200, { 'content-type': MIME['.html']! });

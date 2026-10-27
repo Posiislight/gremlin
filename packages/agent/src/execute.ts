@@ -1,5 +1,5 @@
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import type { ElementHandle, Page } from 'playwright';
+import type { ElementHandle, Page, Request, Response } from 'playwright';
 import type { Action, Locator, StepOutcome } from '@gremlin/contract';
 import { computeLocator } from './locator.js';
 import { redact, resolvePlaceholders } from './secrets.js';
@@ -12,14 +12,19 @@ export type ExecContext = {
   origin: string;
   fixturesDir: string;
   /** Policy handle from installPolicy/createAgentContext; lets execute() report `blocked_by_policy`. */
-  policy?: Pick<PolicyHandle, 'count' | 'blockedFor'> | null;
+  policy?: (Pick<PolicyHandle, 'count' | 'blockedFor'> & Partial<Pick<PolicyHandle, 'popupsOpenedBy'>>) | null;
 };
 export type ExecResult = { outcome: StepOutcome; locator: Locator | null; error?: string };
 
 const ACTION_TIMEOUT = 5000;
 const POPUP_WAIT_MS = 400;
-// A link that declares target=_blank is certain to open a popup, so wait longer for it (slow machines).
-const POPUP_LINK_WAIT_MS = 3000;
+// A popup is certain (a target=_blank link, or Chromium already created the popup target): wait for its 'page'
+// event up to this long. The wait ends as soon as the popup appears, so it only costs time on a slow machine.
+const POPUP_CERTAIN_WAIT_MS = 10_000;
+// How long a popup may stay on about:blank before its first navigation is considered never started.
+const POPUP_NAV_WAIT_MS = 10_000;
+// After an action, how long to wait for the requests it started to be judged by the policy (normally a few ms).
+const JUDGE_WAIT_MS = 3000;
 // Built in Node, serialised by Playwright (no eval inside the page; see locator.ts).
 const declaresBlankTarget = new Function(
   'el',
@@ -48,20 +53,30 @@ async function clickWithPopups(page: Page, handle: ElementHandle, ctx: ExecConte
   clickScopes.set(context, (clickScopes.get(context) ?? 0) + 1);
   try {
     const declaresBlank = await handle.evaluate(declaresBlankTarget as never).catch(() => false);
+    const clickedAt = Date.now();
     await handle.click({ timeout: ACTION_TIMEOUT });
+    let certain = declaresBlank;
+    if (opened.length === 0 && !certain && ctx.policy?.popupsOpenedBy) {
+      // window.open creates the popup target synchronously; a renderer round trip makes sure Chromium's target
+      // discovery has reported it, even if Playwright's 'page' event for it is still far away (slow machine).
+      await page.evaluate('0').catch(() => undefined);
+      certain = (await ctx.policy.popupsOpenedBy(page, clickedAt).catch(() => 0)) > 0;
+    }
     if (opened.length === 0) {
       await new Promise<void>((resolveWait) => {
-        const timer = setTimeout(resolveWait, declaresBlank ? POPUP_LINK_WAIT_MS : POPUP_WAIT_MS);
+        const timer = setTimeout(resolveWait, certain ? POPUP_CERTAIN_WAIT_MS : POPUP_WAIT_MS);
         wake = () => {
           clearTimeout(timer);
           resolveWait();
         };
+        if (opened.length > 0) wake(); // appeared while we were checking
       });
     }
     for (const popup of opened) {
       let target = '';
       try {
-        await popup.waitForURL((u) => u.href !== 'about:blank', { timeout: 2000, waitUntil: 'domcontentloaded' });
+        // A blocked navigation ends on chrome-error://, so this does not wait for blocked popups.
+        await popup.waitForURL((u) => u.href !== 'about:blank', { timeout: POPUP_NAV_WAIT_MS, waitUntil: 'domcontentloaded' });
         target = popup.url();
       } catch {
         /* never loaded; just close it */
@@ -108,11 +123,40 @@ function scrubLocator(loc: Locator, secrets: Record<string, string>): Locator {
 }
 
 export async function execute(page: Page, action: Action, ctx: ExecContext): Promise<ExecResult> {
-  const before = ctx.policy?.count() ?? 0;
-  const r = await executeInner(page, action, ctx);
-  if (!ctx.policy) return r;
-  await page.waitForTimeout(100).catch(() => undefined); // let in-flight requests reach the interceptor
-  // Only blocks of requests issued by this page's own frames count (not background pages / popups / other contexts).
+  if (!ctx.policy) return executeInner(page, action, ctx);
+  const before = ctx.policy.count();
+  // Requests the action starts are tracked until the policy has judged them: a blocked one fails
+  // ('requestfailed' is emitted after the interceptor recorded the block), an allowed one gets a response.
+  const unjudged = new Set<Request>();
+  const onRequest = (r: Request) => {
+    // A new main document cancels the old one's requests, which may then emit no event at all.
+    try {
+      if (r.isNavigationRequest() && r.frame() === page.mainFrame()) unjudged.clear();
+    } catch {
+      /* no frame (worker request) */
+    }
+    unjudged.add(r);
+  };
+  const onJudged = (r: Request) => unjudged.delete(r);
+  const onResponse = (res: Response) => unjudged.delete(res.request());
+  page.on('request', onRequest);
+  page.on('requestfailed', onJudged);
+  page.on('requestfinished', onJudged);
+  page.on('response', onResponse);
+  let r: ExecResult;
+  try {
+    r = await executeInner(page, action, ctx);
+    // Renderer round trip: requests the action started synchronously have been reported by now.
+    await page.evaluate('0').catch(() => undefined);
+    const deadline = Date.now() + JUDGE_WAIT_MS;
+    while (unjudged.size > 0 && Date.now() < deadline && !page.isClosed()) await new Promise((res) => setTimeout(res, 20));
+  } finally {
+    page.off('request', onRequest);
+    page.off('requestfailed', onJudged);
+    page.off('requestfinished', onJudged);
+    page.off('response', onResponse);
+  }
+  // Only blocks of requests issued by this page's frames and by popups it opened count (not other pages / contexts).
   const n = await ctx.policy.blockedFor(page, before);
   if (n > 0) return { outcome: 'blocked_by_policy', locator: r.locator, error: `blocked by policy (${n} request${n === 1 ? '' : 's'})` };
   return r;

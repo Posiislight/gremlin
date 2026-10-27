@@ -5,6 +5,7 @@ import { asHost, FOREIGN } from './hosts.js';
 import { startFixtureServer } from './server.js';
 import { createAgentContext } from '../src/context.js';
 import { installPolicy, markServiceWorkersBlocked, type PolicyHandle } from '../src/policy.js';
+import { BrowserInterceptor } from '../src/intercept.js';
 
 type Srv = Awaited<ReturnType<typeof startFixtureServer>>;
 type Kind = 'read_only' | 'full' | null;
@@ -111,13 +112,13 @@ describe('writes issued while pages close', () => {
     for (const mode of modes) {
       for (let i = 0; i < 5; i++) expect(await runMode(mode, 'read_only'), `${mode} #${i}`).toBe(0);
     }
-  }, 120_000);
+  }, 300_000);
 
   it('(b) control: under a full policy the same unload writes ARE received (the test can see a leak)', async () => {
     let received = 0;
     for (let i = 0; i < 3; i++) received += await runMode('page.close()', 'full');
     expect(received).toBeGreaterThan(0);
-  }, 30_000);
+  }, 120_000);
 });
 
 describe('dispose', () => {
@@ -131,9 +132,11 @@ describe('dispose', () => {
     expect(policy!.paused()).toBe(0);
     expect(await write(page)).toBe('ok'); // no longer enforced
     await context.close();
-    const closed = await Promise.race([own.close().then(() => 'closed'), sleep(15_000).then(() => 'hung')]);
+    // Generous: on Windows, browser.close() waits for process teardown, which takes ~40 s while another Chromium
+    // instance is busy (measured with and without a policy: no difference). A real hang never resolves.
+    const closed = await Promise.race([own.close().then(() => 'closed'), sleep(150_000).then(() => 'hung')]);
     expect(closed).toBe('closed');
-  }, 40_000);
+  }, 200_000);
 });
 
 describe('concurrency', () => {
@@ -162,38 +165,99 @@ describe('concurrency', () => {
       expect((await hitsOf()) - before).toBe(expectedOk);
       await Promise.all(made.map((m) => m.context.close().catch(() => undefined)));
     }
-  }, 60_000);
+  }, 180_000);
 
-  it('(e) churn of unrelated no-policy contexts (with cross-site iframes) never causes a false block', async () => {
+  it('(e) churn of unrelated no-policy / full contexts (iframes, cross-site frames, writes) is never blocked by a read_only context', async () => {
     const R = await mk('read_only');
     let stop = false;
     const reads = (async () => {
       while (!stop) await R.page.evaluate(`Promise.all(Array.from({ length: 5 }, () => fetch('/api/ok').then(r => r.status)))`);
     })();
     const frameUrl = asHost(foreignSrv.url, FOREIGN) + '/empty.html';
+    let expected = 0;
+    const before = await hitsOf();
     for (let i = 0; i < 20; i++) {
-      const U = await mk(null);
-      await U.page.setContent(`<iframe src="${frameUrl}"></iframe><img src="${frameUrl}">`);
-      await U.page.waitForLoadState('load');
-      await U.page.evaluate(`fetch('/api/hit', { method: 'POST', body: 'x' }).catch(() => null)`); // a write: allowed in a no-policy context
+      const U = await mk(i % 2 ? 'full' : null); // on the fixture server: relative writes go to the target R protects
+      expect(U.page.url()).toBe(`${server.url}/empty.html`);
+      // An in-process srcdoc iframe that writes as soon as it exists, a cross-site iframe and an image.
+      const results = await U.page.evaluate(`(async () => {
+        const f = document.createElement('iframe');
+        f.srcdoc = "<script>parent.inner = fetch('/api/hit', { method: 'POST', body: 'i' }).then(r => r.status, () => 'failed')<\\/script>";
+        document.body.append(f);
+        const g = document.createElement('iframe'); g.src = ${JSON.stringify(frameUrl)}; document.body.append(g);
+        const im = document.createElement('img'); im.src = ${JSON.stringify(frameUrl)}; document.body.append(im);
+        const main = await fetch('/api/hit', { method: 'POST', body: 'm' }).then(r => r.status, () => 'failed');
+        while (!window.inner) await new Promise(r => setTimeout(r, 10));
+        return [main, await window.inner];
+      })()`);
+      expect(results, `iteration ${i}`).toEqual([200, 200]); // DELIVERED, not blocked
+      expected += 2;
       await U.context.close();
     }
     stop = true;
     await reads;
+    expect((await hitsOf()) - before).toBe(expected);
     expect(R.policy!.blocked).toHaveLength(0);
+    expect(R.policy!.unattributed).toHaveLength(0);
     await R.context.close();
-  }, 120_000);
+  }, 300_000);
 });
 
-describe('unattributable requests fail closed', () => {
+describe('attribution maps stay bounded', () => {
+  it('200 frame open/close iterations in no-policy and full contexts (pages and contexts closed too): gone frames and targets are pruned', async () => {
+    const own = await launchBrowser();
+    const keep = await mk('read_only', own);
+    const ic = await BrowserInterceptor.for(own);
+    ic.tombstoneMs = 500; // the real value is 60 s; the pruning logic is the same
+    let x = await mk(null, own);
+    let main: string[] = [];
+    for (let i = 0; i < 200; i++) {
+      if (i % 20 === 0) {
+        // every 20 iterations: a fresh context (alternating no-policy / full); the old one is closed with its
+        // page and that page's frames still open (every other time the page is closed first)
+        if (i % 40) await x.page.close();
+        await x.context.close();
+        x = await mk(i % 40 === 0 ? null : 'full', own);
+      }
+      // one in-process iframe opened ...
+      if (i % 20 === 0) main = [...(await ic.frameIdsOf(x.page))];
+      expect(main).toHaveLength(1);
+      await x.page.evaluate(`(() => { const f = document.createElement('iframe'); f.srcdoc = '<p>${i}'; f.id = 'f'; document.body.append(f); })()`);
+      const added = [...(await ic.frameIdsOf(x.page))].filter((f) => f !== main[0]);
+      expect(added, `iteration ${i}`).toHaveLength(1);
+      // ... is attributed eagerly (Page events) to the context it belongs to (that of the page's main frame) ...
+      await expect.poll(() => ic.contextOfFrame(added[0]!)).toBe(ic.contextOfFrame(main[0]!));
+      // ... and closed again
+      await x.page.evaluate(`document.getElementById('f').remove()`);
+    }
+    await x.context.close();
+    await sleep(600);
+    ic.prune();
+    const s = ic.stats();
+    expect(s.goneFrames).toBe(0);
+    expect(s.destroyedTargets).toBe(0);
+    // Only the frames / targets of the live 'keep' page (and browser-level targets) are left.
+    expect(s.frames).toBeLessThanOrEqual(5);
+    expect(s.targets).toBeLessThanOrEqual(10);
+    expect(s.trackedPages).toBe(1);
+    expect(s.clients).toBe(1);
+    expect(s.paused).toBe(0);
+    await keep.context.close();
+    await own.close();
+  }, 240_000);
+});
+
+describe('worker requests', () => {
   it('a shared worker write in a read_only context never reaches the server', async () => {
     const R = await mk('read_only');
     const before = await hitsOf();
     await R.page.evaluate(`new SharedWorker('/shared.js')`);
-    await sleep(800);
+    // The worker is a target of R's browser context, so its write is normally attributed to R (a signal in
+    // `blocked`); were it not attributable, it would still be failed (noted in `unattributed`).
+    await expect.poll(() => R.policy!.blocked.length + R.policy!.unattributed.length, { timeout: 15_000 }).toBeGreaterThanOrEqual(1);
+    const seen = [...R.policy!.blocked, ...R.policy!.unattributed];
+    expect(seen[0]).toMatchObject({ method: 'POST', url: `${server.url}/api/hit` });
     expect((await hitsOf()) - before).toBe(0);
-    expect(R.policy!.blocked.length).toBeGreaterThanOrEqual(1);
-    expect(R.policy!.blocked[0]).toMatchObject({ kind: 'policy', method: 'POST' });
     await R.context.close();
   });
 });

@@ -213,12 +213,13 @@ describe('native redirects (CDP interception pauses every hop)', () => {
 
   it('(c) a streamed page shows its first content while the response is still open', async () => {
     const { context, page } = await setup('read_only');
-    const t = Date.now();
+    // The server holds the tail until released (no timing assumption): seeing the first chunk while the
+    // response is still open proves nothing is buffered until the end.
     await page.goto(`${server.url}/stream`, { waitUntil: 'commit' });
-    await page.waitForSelector('#early');
-    const firstContentMs = Date.now() - t;
-    expect(await page.locator('text=late').count()).toBe(0); // the tail has not arrived: nothing was held back
-    expect(firstContentMs).toBeLessThan(STREAM_MS - 500); // and we did not wait for the response to finish
+    await page.waitForSelector('#early', { timeout: STREAM_MS / 2 });
+    expect(await page.locator('#late').count()).toBe(0);
+    expect(await json(server.url, '/stream-release')).toEqual({ released: 1 });
+    await page.waitForSelector('#late');
     await context.close();
   });
 
@@ -355,7 +356,7 @@ describe('every paused request is released', () => {
 describe('websockets', () => {
   const wsResult = (page: Page, url: string) =>
     page.evaluate(
-      `new Promise((res) => { const w = new WebSocket(${JSON.stringify(url)}); w.onclose = () => res('closed'); w.onerror = () => {}; setTimeout(() => res('timeout'), 4000); })`,
+      `new Promise((res) => { const w = new WebSocket(${JSON.stringify(url)}); w.onclose = () => res('closed'); w.onerror = () => {}; setTimeout(() => res('timeout'), 15000); })`,
     );
 
   it('read_only blocks sockets to the target site and records them', async () => {

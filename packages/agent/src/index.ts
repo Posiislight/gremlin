@@ -6,7 +6,7 @@ export type { SettleOptions } from './settle.js';
 export { computeLocator, resolveLocator } from './locator.js';
 export { resolvePlaceholders, redact } from './secrets.js';
 export { installPolicy, markServiceWorkersBlocked } from './policy.js';
-export type { PolicyOptions, PolicyHandle } from './policy.js';
+export type { PolicyOptions, PolicyHandle, UnattributedBlock } from './policy.js';
 export { decideRequest } from './decide.js';
 export type { DecideRequest, Decision } from './decide.js';
 export { createAgentContext } from './context.js';

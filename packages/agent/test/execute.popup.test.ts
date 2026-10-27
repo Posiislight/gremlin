@@ -55,30 +55,48 @@ describe('popups', () => {
     const r = await execute(page, { type: 'click', ref: await refOf('Open off-origin'), intent: 'i' }, ctx);
     expect(r.outcome).toBe('ok');
     expect(page.url()).toBe(`${server.url}/popup.html`);
-    expect(context.pages()).toHaveLength(1);
-    expect(policy.blocked).toHaveLength(1);
+    // Without ctx.policy the click scope waits 400 ms; on a slow machine the context guard closes the popup instead.
+    await expect.poll(() => context.pages().length, { timeout: 15_000 }).toBe(1);
+    await expect.poll(() => policy.blocked.length, { timeout: 15_000 }).toBe(1);
     expect(policy.blocked[0]).toMatchObject({ kind: 'policy', method: 'GET', url: `http://foreign.test:${new URL(server.url).port}/empty.html` });
     await context.close();
   });
 
-  it('a blocked navigation of the popup is not blamed on the acting page (frame attribution)', async () => {
+  it('a click whose popup navigation is blocked reports blocked_by_policy (popup frames count for the acting page)', async () => {
     const ctx = await fresh();
     const r = await execute(page, { type: 'click', ref: await refOf('Open off-origin'), intent: 'i' }, { ...ctx, policy });
-    expect(r.outcome).toBe('ok');
+    expect(r.outcome).toBe('blocked_by_policy');
     expect(policy.count()).toBe(1);
+    expect(page.url()).toBe(`${server.url}/popup.html`);
+    expect(context.pages()).toHaveLength(1);
+    await context.close();
+  });
+
+  it('a click opening a popup straight to a payment checkout reports blocked_by_policy', async () => {
+    const ctx = await fresh();
+    const url = `${asHost(paySrv.url, 'checkout.stripe.com')}/pay`;
+    const before = paySrv.connections();
+    await page.evaluate(`(() => { const b = document.createElement('button'); b.textContent = 'Pay now'; b.onclick = () => window.open(${JSON.stringify(url)}, '_blank'); document.body.append(b); })()`);
+    const r = await execute(page, { type: 'click', ref: await refOf('Pay now'), intent: 'i' }, { ...ctx, policy });
+    expect(r.outcome).toBe('blocked_by_policy');
+    expect(policy.blocked.map((b) => (b.kind === 'policy' ? b.url : ''))).toContain(url);
+    expect(paySrv.connections()).toBe(before);
+    await expect.poll(() => context.pages().length, { timeout: 15_000 }).toBe(1);
     await context.close();
   });
 
   it('a popup opened 1s after the click is closed by the context guard', async () => {
     const ctx = await fresh();
-    const r = await execute(page, { type: 'click', ref: await refOf('Late popup'), intent: 'i' }, ctx);
-    expect(r.outcome).toBe('ok');
-    expect(context.pages()).toHaveLength(1);
-    // The popup opens ~1s after the click, after the click scope ended; give the guard time to close it.
     let seen = false;
     context.on('page', () => (seen = true));
-    await expect.poll(() => seen, { timeout: 3000 }).toBe(true);
-    await expect.poll(() => context.pages().length, { timeout: 3000 }).toBe(1);
+    // The popup opens only when the test releases the gate, i.e. after the click scope ended (no timing assumption).
+    await page.evaluate(`window.lateGate = new Promise((r) => { window.releaseLate = r; }); 0`);
+    const r = await execute(page, { type: 'click', ref: await refOf('Late popup'), intent: 'i' }, ctx);
+    expect(r.outcome).toBe('ok');
+    expect(seen).toBe(false);
+    await page.evaluate('window.releaseLate()');
+    await expect.poll(() => seen, { timeout: 15_000 }).toBe(true);
+    await expect.poll(() => context.pages().length, { timeout: 15_000 }).toBe(1);
     expect(context.pages()).toHaveLength(1);
     expect(page.url()).toBe(`${server.url}/popup.html`);
     await context.close();
@@ -89,9 +107,9 @@ describe('popups', () => {
     const before = paySrv.connections();
     const url = `${asHost(paySrv.url, 'checkout.stripe.com')}/pay`;
     await page.evaluate(`window.open(${JSON.stringify(url)}, '_blank')`);
-    await expect.poll(() => policy.blocked.length).toBe(1);
+    await expect.poll(() => policy.blocked.length, { timeout: 15_000 }).toBe(1);
     expect(policy.blocked[0]).toMatchObject({ kind: 'policy', method: 'GET', url });
-    await expect.poll(() => context.pages().length).toBe(1);
+    await expect.poll(() => context.pages().length, { timeout: 15_000 }).toBe(1);
     expect(paySrv.connections()).toBe(before);
     await context.close();
   });
