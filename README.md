@@ -61,3 +61,13 @@ Prepare a completed scan before recording. No slides or installation walkthrough
 ## Offline UI preview
 
 Set `NEXT_PUBLIC_MOCK=1` explicitly to view sample data. The badge labels it as mock. A configured live engine that becomes unreachable shows a connection error instead of falling back to sample results.
+
+## Self-fixing loop (autofix)
+
+Turn a finding into a reviewed PR without hand-holding:
+
+```
+pnpm --filter @gremlin/engine autofix <findingId> --repro-cmd "pnpm --filter demo-target exec playwright test tests/gremlin-repro.spec.ts"
+```
+
+The loop fetches the fix prompt, runs `claude -p` in an isolated git worktree, and retries up to `--attempts` times, feeding failures back. A fix only reaches a PR after all gates pass: tests not weakened (no removed assertions, skips or retries), project tests (`--test-cmd`, default `pnpm test`), the generated reproduction now passes (`--repro-cmd`), and an independent reviewer pass returns APPROVE. Then you approve (`--yes` skips the prompt), it pushes, opens the PR with `gh`, and calls `report_fix_outcome` so the prompt variant's fix rate improves. Anything else is discarded with the worktree. Requires `claude` and `gh` on PATH and a running engine.

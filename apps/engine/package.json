@@ -9,6 +9,7 @@
   "scripts": {
     "demo": "tsx src/scripts/demo.ts",
     "demo:check": "tsx src/scripts/demo-check.ts",
+    "autofix": "tsx src/scripts/autofix.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "start": "tsx src/main.ts",
