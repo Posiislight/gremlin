@@ -1,0 +1,12 @@
+<!doctype html>
+<html><head><title>Navigation race</title></head>
+<body>
+<main>
+  <h1>Start</h1>
+  <a href="/cart.html">Go to shop</a>
+  <!-- Navigates a little after the click: the post-action observe races the document swap. -->
+  <button type="button" id="later" onclick="setTimeout(() => { location.href = '/cart.html'; }, 60)">Go later</button>
+  <!-- Fails noisily on every click: same console error each time (one candidate, deduped across steps). -->
+  <button type="button" id="broken" onclick="console.error('Widget failed to render: id ' + Math.floor(Math.random() * 100000))">Broken widget</button>
+</main>
+</body></html>

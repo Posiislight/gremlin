@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@gremlin/contract": "workspace:*",
+    "@gremlin/llm": "workspace:*",
     "@gremlin/storage": "workspace:*",
     "fflate": "0.8.3",
     "playwright": "1.64.1",

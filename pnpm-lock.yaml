@@ -242,6 +242,9 @@ importers:
       '@gremlin/contract':
         specifier: workspace:*
         version: link:../contract
+      '@gremlin/llm':
+        specifier: workspace:*
+        version: link:../llm
       '@gremlin/storage':
         specifier: workspace:*
         version: link:../storage
