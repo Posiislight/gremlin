@@ -18,6 +18,8 @@ import { fixPrompt, playwrightTest, replayUrl, type PromptStep } from '../mcp/pr
 import { signFilePath } from './files.js';
 import { ownedFinding, ownedRun, ownedScan } from './access.js';
 import { runSummary, summarizeFindings } from './serialize.js';
+import { getAutofixJob, startAutofixJob } from '../autofix-jobs.js';
+import { resolve } from 'node:path';
 
 const idParam = z.object({ id: z.string().min(1).max(128) });
 const segmentParam = z.object({ id: z.string().min(1).max(128), segment: z.coerce.number().int().min(0) });
@@ -133,6 +135,24 @@ export function apiRoutes(deps: { db: Db; storage: Storage; secret: string }) {
       const replay = occurrence ? replayUrl(process.env.GREMLIN_WEB_URL ?? 'http://localhost:3200', occurrence.runId, occurrence.n, f.id) : null;
       const test = playwrightTest(f, repro, f.url ? new URL(f.url).origin : null);
       return { prompt: fixPrompt({ finding: f, steps: repro, signals, replay, test }) };
+    });
+
+    app.post('/v1/findings/:id/autofix', async (req, reply) => {
+      const p = idParam.safeParse(req.params);
+      if (!p.success || !/^[A-Za-z0-9_-]+$/.test(p.data.id)) return bad(reply, p.success ? [] : p.error.issues);
+      const f = await ownedFinding(db, req.projectId, p.data.id);
+      if (!f) return notFound(reply);
+      const reproCmd = process.env.GREMLIN_AUTOFIX_REPRO_CMD;
+      if (!reproCmd) return reply.code(503).send({ error: 'autofix_not_configured', hint: 'Set GREMLIN_AUTOFIX_REPRO_CMD' });
+      return reply.code(202).send(startAutofixJob(f.id, { reproCmd, cwd: resolve(import.meta.dirname, '../../../..') }));
+    });
+
+    app.get('/v1/findings/:id/autofix', async (req, reply) => {
+      const p = idParam.safeParse(req.params);
+      if (!p.success) return bad(reply, p.error.issues);
+      const f = await ownedFinding(db, req.projectId, p.data.id);
+      if (!f) return notFound(reply);
+      return getAutofixJob(f.id) ?? { status: 'idle', log: [], prUrl: null };
     });
 
     app.patch('/v1/findings/:id', async (req, reply) => {
