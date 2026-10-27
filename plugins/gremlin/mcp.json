@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "gremlin": {
+      "type": "http",
+      "url": "${GREMLIN_ENGINE_URL}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${GREMLIN_API_KEY}"
+      }
+    }
+  }
+}

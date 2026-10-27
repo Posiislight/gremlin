@@ -1,0 +1,14 @@
+{
+  "name": "gremlin",
+  "displayName": "Gremlin",
+  "version": "0.1.0",
+  "description": "AI QA team for web apps: run Deep Scans and regression scenarios, get findings with replay links, and hand ready-made fix prompts to your coding agent.",
+  "author": { "name": "Gremlin" },
+  "homepage": "https://github.com/Posiislight/openfire_hackathon",
+  "repository": "https://github.com/Posiislight/openfire_hackathon",
+  "license": "MIT",
+  "category": "testing",
+  "keywords": ["qa", "testing", "e2e", "bugs", "playwright", "regression"],
+  "mcpServers": "./mcp.json",
+  "skills": "./skills/"
+}
