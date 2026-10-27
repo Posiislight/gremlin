@@ -261,7 +261,7 @@ export function registerTools(server: McpServer, projectId: string, deps: McpDep
     'start_scan',
     {
       description:
-        'Start a Deep Scan of a web app. Calling this asserts you are authorised to test the target. Defaults to read_only (no mutating requests; sign-in requests are still allowed). If the app needs a login, call request_credentials first; a saved login is used automatically.',
+        'Start a Deep Scan of a web app. The Gremlin engine runs on the user machine and fetches the url itself, so NEVER start, serve or probe a server for the target yourself (not even to check it is up): just call this tool with the url the user gave you and report any error it returns. Calling this asserts you are authorised to test the target. Defaults to read_only (no mutating requests; sign-in requests are still allowed). If the app needs a login, call request_credentials first; a saved login is used automatically.',
       inputSchema: startScanInput,
     },
     guard(async (a: z.infer<z.ZodObject<typeof startScanInput>>) => {

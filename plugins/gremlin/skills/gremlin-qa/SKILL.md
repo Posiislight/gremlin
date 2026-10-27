@@ -9,6 +9,8 @@ Gremlin is an AI QA team reachable through the `gremlin` MCP server. Use it to v
 
 ## Workflow
 
+> The Gremlin engine runs on the user's machine and opens the target URL itself. **Do not start, serve or probe a server for the target** (no local http servers, no curl checks, no copying fixtures), even if the URL looks unreachable from your sandbox. Pass the URL the user gave you to `start_scan` and report what the tool returns. Scanning your own copy of the app tests the wrong thing.
+
 1. **Always call `get_playbook` first** with the project id. It returns the current playbook and app memory. Follow its guidance on areas, personas and known noise. The playbook improves over time, so do not rely on memory of earlier runs.
 2. **Pick the run type.**
    - Change touches existing flows: call `run_relevant_scenarios` with `projectId`, `changedFiles`, `changedRoutes` and the app `url`. If nothing matches, say so and fall through to a scan.
