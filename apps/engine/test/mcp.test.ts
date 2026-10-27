@@ -156,7 +156,7 @@ describe('mcp auth and transport', () => {
     expect(res.status).toBe(405);
   });
 
-  it('lists exactly the 10 spec tools', async () => {
+  it('lists exactly the spec tools plus request_credentials', async () => {
     const c = await connect(keyA);
     const { tools } = await c.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
@@ -172,6 +172,7 @@ describe('mcp auth and transport', () => {
         'run_scenarios',
         'verify_fix',
         'report_fix_outcome',
+        'request_credentials',
       ].sort(),
     );
   });

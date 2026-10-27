@@ -23,7 +23,10 @@ export function mcpRoutes(deps: McpDeps) {
 
     app.post('/mcp', async (req, reply) => {
       const server = new McpServer({ name: 'gremlin', version: '0.1.0' });
-      registerTools(server, req.projectId, deps);
+      const host = (req.headers['x-forwarded-host'] as string | undefined) ?? req.headers.host;
+      const proto = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim() ?? req.protocol;
+      const publicBase = deps.publicBase ?? (host ? `${proto}://${host}` : undefined);
+      registerTools(server, req.projectId, { ...deps, ...(publicBase ? { publicBase } : {}) });
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,

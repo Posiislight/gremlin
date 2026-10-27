@@ -12,7 +12,7 @@ import { buildServer, createApiKey, createQueues, closeQueues, hashKey } from '.
 import { createUsageSink } from '../persist.js';
 import { startWorkers } from '../worker.js';
 import { startDiscoveryWorker } from '../orchestrator.js';
-import { startFixtureServer } from '../../test/fixtureServer.js';
+import { FIXTURE_LOGIN, startFixtureServer } from '../../test/fixtureServer.js';
 
 const root = resolve(import.meta.dirname, '../../../..');
 const dotenv = resolve(root, '.env');
@@ -50,6 +50,8 @@ const web = spawn(process.execPath, [requireWeb.resolve('next/dist/bin/next'), '
     GREMLIN_API_KEY: apiKey, GREMLIN_DEMO_TARGET_URL: targetUrl },
 });
 console.info(`\nGremlin dashboard: ${webUrl}\nEngine + MCP: http://localhost:8080/mcp\nBug fixture: ${targetUrl}\n`);
+console.info(`Login-gated store: ${fixture.url}/store.html  (test login: ${FIXTURE_LOGIN.email} / ${FIXTURE_LOGIN.password})
+`);
 console.info('Project credentials saved to .env.demo (not printed). Use full actions to reproduce the fixture POST failure.');
 let closing = false;
 const shutdown = async () => {

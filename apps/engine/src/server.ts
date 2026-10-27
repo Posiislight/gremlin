@@ -7,6 +7,7 @@ import { apiRoutes } from './routes/api.js';
 import { eventRoutes } from './routes/events.js';
 import { registerCors } from './cors.js';
 import { mcpRoutes } from './mcp/index.js';
+import { credentialRoutes } from './routes/credentials.js';
 import type { Queues } from './queue.js';
 
 export interface ServerDeps {
@@ -24,7 +25,7 @@ export interface ServerDeps {
 export function buildServer(deps: ServerDeps): FastifyInstance {
   const secret = deps.secret ?? process.env.GREMLIN_SECRET_KEY;
   if (!secret) throw new Error('GREMLIN_SECRET_KEY is required');
-  const app = Fastify({ logger: !process.env.VITEST });
+  const app = Fastify({ logger: !process.env.VITEST, routerOptions: { maxParamLength: 1024 } });
 
   const webOrigin = deps.webOrigin ?? process.env.GREMLIN_WEB_ORIGIN;
   registerCors(app, webOrigin);
@@ -35,7 +36,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.register(
     eventRoutes({ db: deps.db, webOrigin, ...(deps.eventPollMs ? { pollMs: deps.eventPollMs } : {}) }),
   );
-  app.register(mcpRoutes({ db: deps.db, queues: deps.queues, webUrl: process.env.GREMLIN_WEB_URL ?? 'http://localhost:3200' }));
+  app.register(mcpRoutes({ db: deps.db, queues: deps.queues, secret, webUrl: process.env.GREMLIN_WEB_URL ?? 'http://localhost:3200' }));
+  app.register(credentialRoutes({ db: deps.db, secret }));
   app.register(fileRoutes({ storage: deps.storage, secret }));
   return app;
 }

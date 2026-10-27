@@ -18,6 +18,7 @@ import {
 } from '@gremlin/db';
 import type { Queues } from '../queue.js';
 import { inScan } from '../scan-findings.js';
+import { CREDENTIAL_LINK_TTL_S, DEFAULT_PERSONA, savedPersonaNames, signCredentialLink } from '../credentials.js';
 import { fixPrompt, playwrightTest, replayUrl, scrub, type PromptStep } from './prompt.js';
 
 export interface McpDeps {
@@ -25,6 +26,10 @@ export interface McpDeps {
   queues: Queues;
   /** Dashboard base URL for replay links. Defaults to GREMLIN_WEB_URL, then http://localhost:3000. */
   webUrl?: string;
+  /** HMAC secret for credential links (defaults to GREMLIN_SECRET_KEY). */
+  secret?: string;
+  /** Public base URL of this engine, for links shown to the user (derived from the incoming request). */
+  publicBase?: string;
 }
 
 const TERMINAL = new Set(['done', 'partial', 'failed', 'cancelled', 'completed', 'error']);
@@ -51,10 +56,38 @@ export const startScanInput = {
   personas: z.array(z.string().min(1).max(100)).max(10).optional().describe('Persona names to scan as.'),
 };
 
-/** Registers the 10 Gremlin tools on a fresh McpServer scoped to one project. */
+/** Registers the Gremlin tools on a fresh McpServer scoped to one project. */
 export function registerTools(server: McpServer, projectId: string, deps: McpDeps): void {
   const { db, queues } = deps;
   const webBase = () => deps.webUrl ?? process.env.GREMLIN_WEB_URL ?? 'http://localhost:3000';
+
+
+  /** Finds (or creates, by origin) the project's environment for a url / environmentId argument. */
+  async function resolveEnvironment(
+    tx: Pick<Db, 'select' | 'insert' | 'execute'>,
+    a: { url?: string | undefined; environmentId?: string | undefined },
+    allowed: string,
+  ): Promise<string> {
+    if (a.environmentId) {
+      const [env] = await tx
+        .select()
+        .from(environments)
+        .where(and(eq(environments.id, a.environmentId), eq(environments.projectId, projectId)))
+        .limit(1);
+      if (!env) throw new ToolError('environment_not_found');
+      return env.id;
+    }
+    const origin = new URL(a.url!).origin;
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${projectId + '|' + origin}))`);
+    const [existing] = await tx
+      .select()
+      .from(environments)
+      .where(and(eq(environments.projectId, projectId), eq(environments.baseUrl, origin)))
+      .limit(1);
+    if (existing) return existing.id;
+    const [env] = await tx.insert(environments).values({ projectId, baseUrl: origin, allowedActions: allowed }).returning();
+    return env!.id;
+  }
 
   const guard =
     <A>(fn: (args: A) => Promise<unknown>) =>
@@ -112,10 +145,19 @@ export function registerTools(server: McpServer, projectId: string, deps: McpDep
       .from(findings)
       .where(inScan(scanId))
       .groupBy(findings.status);
+    const [blocked] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(steps)
+      .innerJoin(agentRuns, eq(steps.agentRunId, agentRuns.id))
+      .where(and(eq(agentRuns.scanId, scanId), sql`${steps.actionJson}->>'type' = 'finish'`, sql`${steps.actionJson}->>'reason' ilike 'Blocked by sign-in%'`));
+    const needsCredentials = (blocked?.n ?? 0) > 0;
     return {
       scanId: scan.id,
       status: scan.status,
       url: baseUrl,
+      ...(needsCredentials
+        ? { needsCredentials: true, nextStep: 'The scan was stopped by a sign-in page. Call request_credentials for this url, give the user the link, then start_scan again.' }
+        : {}),
       teamSize: scan.teamSize,
       focus: scan.focus,
       costUsd: Number(scan.costUsd.toFixed(4)),
@@ -175,52 +217,76 @@ export function registerTools(server: McpServer, projectId: string, deps: McpDep
   );
 
   server.registerTool(
+    'request_credentials',
+    {
+      description:
+        'Use when the target needs a login (the user says so, or a scan could not get past a sign-in page). Returns a secure link: tell the user to open it and type the test login (email/username + password) there. NEVER ask the user to type the password in chat, and never put credentials in focus text. After they confirm, call start_scan; saved logins are used automatically. Also reports whether a login is already saved.',
+      inputSchema: {
+        url: httpUrl.optional().describe('Target URL. Provide url or environmentId.'),
+        environmentId: z.string().min(1).optional(),
+        persona: z.string().min(1).max(100).optional().describe('Name for this login, e.g. "customer" or "admin". Default: "default".'),
+        replace: z.boolean().optional().describe('Issue a link even if a login is already saved (to change it).'),
+      },
+    },
+    guard(async (a: { url?: string | undefined; environmentId?: string | undefined; persona?: string | undefined; replace?: boolean | undefined }) => {
+      if (!a.url && !a.environmentId) throw new ToolError('provide url or environmentId');
+      const secret = deps.secret ?? process.env.GREMLIN_SECRET_KEY;
+      if (!secret) throw new ToolError('credentials_unavailable');
+      const persona = a.persona ?? DEFAULT_PERSONA;
+      const environmentId = await db.transaction((tx) => resolveEnvironment(tx, a, 'read_only'));
+      const saved = await savedPersonaNames(db, environmentId);
+      if (saved.includes(persona) && !a.replace) {
+        return {
+          environmentId,
+          persona,
+          alreadySaved: true,
+          savedLogins: saved,
+          note: 'A login is already saved and will be used automatically by start_scan. Pass replace: true to issue a link to change it.',
+        };
+      }
+      const token = signCredentialLink({ projectId, environmentId, persona }, secret);
+      const base = (deps.publicBase ?? process.env.GREMLIN_PUBLIC_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
+      return {
+        environmentId,
+        persona,
+        alreadySaved: false,
+        link: `${base}/credentials/${token}`,
+        expiresInMinutes: CREDENTIAL_LINK_TTL_S / 60,
+        note: 'Show this link to the user and ask them to open it and enter a TEST login for the site. Do not ask for the password in chat. When they say they have saved it, call start_scan.',
+      };
+    }),
+  );
+
+  server.registerTool(
     'start_scan',
     {
       description:
-        'Start a Deep Scan of a web app. Calling this asserts you are authorised to test the target. Defaults to read_only (no mutating requests).',
+        'Start a Deep Scan of a web app. Calling this asserts you are authorised to test the target. Defaults to read_only (no mutating requests; sign-in requests are still allowed). If the app needs a login, call request_credentials first; a saved login is used automatically.',
       inputSchema: startScanInput,
     },
     guard(async (a: z.infer<z.ZodObject<typeof startScanInput>>) => {
       if (!a.url && !a.environmentId) throw new ToolError('provide url or environmentId');
       const teamSize = a.teamSize ?? 5;
       const allowed = a.allowedActions ?? 'read_only';
-      const scanId = await db.transaction(async (tx) => {
-        let environmentId: string;
-        if (a.environmentId) {
-          const [env] = await tx
-            .select()
-            .from(environments)
-            .where(and(eq(environments.id, a.environmentId), eq(environments.projectId, projectId)))
-            .limit(1);
-          if (!env) throw new ToolError('environment_not_found');
-          environmentId = env.id;
-        } else {
-          const origin = new URL(a.url!).origin;
-          await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${projectId + '|' + origin}))`);
-          const [existing] = await tx
-            .select()
-            .from(environments)
-            .where(and(eq(environments.projectId, projectId), eq(environments.baseUrl, origin)))
-            .limit(1);
-          if (existing) environmentId = existing.id;
-          else {
-            const [env] = await tx
-              .insert(environments)
-              .values({ projectId, baseUrl: origin, allowedActions: allowed })
-              .returning();
-            environmentId = env!.id;
-          }
-        }
+      const { scanId, environmentId } = await db.transaction(async (tx) => {
+        const environmentId = await resolveEnvironment(tx, a, allowed);
         const [scan] = await tx
           .insert(scans)
           .values({ environmentId, status: 'queued', teamSize, allowedActions: allowed, focus: a.focus ?? null })
           .returning();
-        return scan!.id;
+        return { scanId: scan!.id, environmentId };
       });
       const entry = a.url ? new URL(a.url) : null;
       await queues.discovery.add('discover', { scanId, ...(entry ? { startPath: `${entry.pathname}${entry.search}` } : {}) });
-      return { scanId, status: 'queued', note: 'Call wait_scan or get_scan to follow progress.' };
+      const loginSaved = (await savedPersonaNames(db, environmentId)).length > 0;
+      return {
+        scanId,
+        status: 'queued',
+        loginSaved,
+        note: loginSaved
+          ? 'A saved login will be used if the app asks for one. Call wait_scan or get_scan to follow progress.'
+          : 'No login saved. If the scan reports it was stopped by a sign-in page, call request_credentials and start the scan again. Call wait_scan or get_scan to follow progress.',
+      };
     }),
   );
 

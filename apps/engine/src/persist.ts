@@ -26,6 +26,11 @@ import {
 import type { Llm, Usage } from '@gremlin/llm';
 import type { Storage } from '@gremlin/storage';
 
+import { loadSecrets } from './credentials.js';
+
+/** Sign-in endpoints that stay writable in read_only mode when the run has a saved login. */
+const LOGIN_PATHS = ['/login', '/signin', '/sign-in', '/api/login', '/api/signin', '/api/auth', '/auth', '/session', '/api/session', '/oauth'];
+
 export type AgentJob = { scanId: string; runId: string; charter: Charter };
 
 export type AgentJobDeps = {
@@ -130,7 +135,8 @@ async function safeJudge(fn: () => Promise<JudgeVerdict>): Promise<Verdict> {
  */
 export async function processAgentJob(deps: AgentJobDeps, job: AgentJob): Promise<void> {
   const { db } = deps;
-  const forms = secretForms(deps.secrets ?? {});
+  let secrets = deps.secrets ?? {};
+  let forms = secretForms(secrets);
   const scrub = (s: string) => redact(s, forms);
   const scrubJson = <T>(v: T): T => JSON.parse(scrub(JSON.stringify(v))) as T;
   const scope: UsageScope = { scanId: null, agentRunId: job.runId, pending: [], tokens: 0, costUsd: 0, calls: 0 };
@@ -146,6 +152,13 @@ export async function processAgentJob(deps: AgentJobDeps, job: AgentJob): Promis
       if (!ctx) throw new Error(`scan ${job.scanId} not found`);
       scope.scanId = ctx.scan.id;
       const projectId = ctx.env.projectId;
+      if (!deps.secrets) {
+        const key = process.env.GREMLIN_SECRET_KEY;
+        if (key) {
+          secrets = await loadSecrets(db, ctx.env.id, job.charter.persona, key);
+          forms = secretForms(secrets);
+        }
+      }
 
       const [charterRow] = await db.select({ id: charters.id }).from(charters).where(eq(charters.id, job.charter.id)).limit(1);
       const startedAt = new Date();
@@ -180,7 +193,8 @@ export async function processAgentJob(deps: AgentJobDeps, job: AgentJob): Promis
         storage: deps.storage,
         runId: job.runId,
         keyPrefix: `runs/${job.runId}`,
-        secrets: deps.secrets ?? {},
+        secrets,
+        ...(Object.keys(secrets).length ? { authAllowlist: LOGIN_PATHS } : {}),
         allowedActions: ctx.scan.allowedActions === 'full' ? 'full' : 'read_only',
         ...(deps.budgets ? { budgets: deps.budgets } : {}),
         ...(suppressedRows.length ? { suppressed: new Set(suppressedRows.map((r) => r.signature)) } : {}),
