@@ -24,12 +24,19 @@ export function FindingActions({ id, status: initial, prompt, mock }: { id: stri
     return () => window.clearInterval(t);
   }, [id, mock, job.status]);
 
+  const [armed, setArmed] = useState(false);
+
   async function autofix() {
-    if (!window.confirm('Let Gremlin fix this bug? A coding agent will change code, run tests, and open a pull request if every check passes.')) return;
+    if (!armed) { setArmed(true); return; }
+    setArmed(false);
     setNote(null);
-    const res = await sendJson<Job & { hint?: string }>('POST', `/v1/findings/${encodeURIComponent(id)}/autofix`);
+    setJob({ status: 'running', log: ['Sending to engine…'], prUrl: null });
+    const res = await sendJson<Job>('POST', `/v1/findings/${encodeURIComponent(id)}/autofix`);
     if (res.ok && res.data) setJob(res.data);
-    else setNote(res.status === 503 ? 'auto-fix not configured (set GREMLIN_AUTOFIX_REPRO_CMD on the engine)' : `failed (${res.status || 'network'})`);
+    else {
+      const why = res.status === 404 ? 'engine has no autofix route: restart the engine (pnpm demo)' : res.status === 0 ? 'engine unreachable' : `engine returned ${res.status}`;
+      setJob({ status: 'failed', log: [`Could not start auto-fix: ${why}`], prUrl: null });
+    }
   }
 
   async function set(next: 'confirmed' | 'dismissed' | 'fixed' | 'new') {
@@ -57,7 +64,7 @@ export function FindingActions({ id, status: initial, prompt, mock }: { id: stri
       </div>
       <div className="flex flex-wrap gap-2">
         <Btn variant="primary" onClick={copy} disabled={!prompt}>{copied ? 'Copied ✓' : 'Copy fix prompt'}</Btn>
-        <Btn variant="primary" onClick={autofix} disabled={mock || job.status === 'running'} title={mock ? 'Needs a live engine' : 'Agent fixes, tests, and opens a PR'}>{job.status === 'running' ? 'Fixing…' : 'Fix this bug'}</Btn>
+        <Btn variant="primary" onClick={autofix} disabled={mock || job.status === 'running'} title={mock ? 'Needs a live engine' : 'Agent fixes, tests, and opens a PR'}>{job.status === 'running' ? 'Fixing…' : armed ? 'Confirm: agent will edit code & open a PR' : 'Fix this bug'}</Btn>
         <Btn onClick={() => set('confirmed')} disabled={busy || status === 'confirmed'}>Confirm</Btn>
         <Btn onClick={() => set('fixed')} disabled={busy || status === 'fixed'}>Mark fixed</Btn>
         {status === 'dismissed' ? (

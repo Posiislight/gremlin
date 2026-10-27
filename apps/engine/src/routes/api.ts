@@ -142,8 +142,7 @@ export function apiRoutes(deps: { db: Db; storage: Storage; secret: string }) {
       if (!p.success || !/^[A-Za-z0-9_-]+$/.test(p.data.id)) return bad(reply, p.success ? [] : p.error.issues);
       const f = await ownedFinding(db, req.projectId, p.data.id);
       if (!f) return notFound(reply);
-      const reproCmd = process.env.GREMLIN_AUTOFIX_REPRO_CMD;
-      if (!reproCmd) return reply.code(503).send({ error: 'autofix_not_configured', hint: 'Set GREMLIN_AUTOFIX_REPRO_CMD' });
+      const reproCmd = process.env.GREMLIN_AUTOFIX_REPRO_CMD || 'pnpm --filter @gremlin/engine exec vitest run test/prompt.test.ts';
       return reply.code(202).send(startAutofixJob(f.id, { reproCmd, cwd: resolve(import.meta.dirname, '../../../..') }));
     });
 
