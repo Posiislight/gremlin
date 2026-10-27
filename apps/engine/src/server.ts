@@ -6,6 +6,7 @@ import { scanRoutes } from './routes/scans.js';
 import { apiRoutes } from './routes/api.js';
 import { eventRoutes } from './routes/events.js';
 import { registerCors } from './cors.js';
+import { mcpRoutes } from './mcp/index.js';
 import type { Queues } from './queue.js';
 
 export interface ServerDeps {
@@ -34,6 +35,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.register(
     eventRoutes({ db: deps.db, webOrigin, ...(deps.eventPollMs ? { pollMs: deps.eventPollMs } : {}) }),
   );
+  app.register(mcpRoutes({ db: deps.db, queues: deps.queues }));
   app.register(fileRoutes({ storage: deps.storage, secret }));
   return app;
 }
