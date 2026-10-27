@@ -1,0 +1,39 @@
+{
+  "name": "@gremlin/engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/server.ts"
+  },
+  "scripts": {
+    "demo": "tsx src/scripts/demo.ts",
+    "demo:check": "tsx src/scripts/demo-check.ts",
+    "autofix": "tsx src/scripts/autofix.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "start": "tsx src/main.ts",
+    "scan:one": "tsx src/scripts/scan-one.ts",
+    "start:worker": "tsx src/worker-main.ts"
+  },
+  "dependencies": {
+    "@gremlin/agent": "workspace:*",
+    "@gremlin/contract": "workspace:*",
+    "@gremlin/db": "workspace:*",
+    "@gremlin/llm": "workspace:*",
+    "@gremlin/storage": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "bullmq": "^5.0.0",
+    "drizzle-orm": "0.45.4",
+    "fastify": "^5.0.0",
+    "ioredis": "^5.0.0",
+    "playwright": "1.64.1",
+    "tsx": "^4.20.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "dotenv": "^18.0.9",
+    "postgres": "^3.4.9"
+  }
+}

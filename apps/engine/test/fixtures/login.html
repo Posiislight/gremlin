@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in - PaddleCo</title><link rel="stylesheet" href="/shop.css"></head>
+<body>
+<div class="announcement">Good things are just around the river bend.</div>
+<header class="top"><a class="logo" href="/login.html">Paddle<span>Co</span></a></header>
+<main>
+  <form class="panel" id="login" method="post" action="/api/login">
+    <span class="eyebrow">The PaddleCo club</span>
+    <h1>Sign in</h1>
+    <p class="sub">Sign in to see your basket and member prices.</p>
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="username" required>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <p class="err" id="err" role="alert"></p>
+    <button type="submit" class="primary">Sign in</button>
+  </form>
+</main>
+<script>
+  const next = new URLSearchParams(location.search).get('next') || '/store.html';
+  document.getElementById('login').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: f.email.value, password: f.password.value }),
+    });
+    if (res.ok) location.href = next.startsWith('/') ? next : '/store.html';
+    else document.getElementById('err').textContent = 'Wrong email or password';
+  });
+</script>
+</body></html>

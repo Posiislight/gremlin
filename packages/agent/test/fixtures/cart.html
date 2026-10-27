@@ -1,0 +1,18 @@
+<!doctype html>
+<html><head><title>Cart fixture</title></head>
+<body>
+<main>
+  <h1>Shop</h1>
+  <a href="#cart" id="badge">Cart (0)</a>
+  <p>Kayak - 499 EUR</p>
+  <button type="button" id="add">Add to cart</button>
+  <div role="button" tabindex="0" id="inert">Inert widget</div>
+</main>
+<script>
+  let count = 0;
+  document.getElementById('add').addEventListener('click', () => {
+    count += 1;
+    document.getElementById('badge').textContent = 'Cart (' + count + ')';
+  });
+</script>
+</body></html>

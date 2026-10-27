@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><title>Popup fixture</title></head>
+<body>
+<main>
+  <a href="/empty.html" target="_blank">Open same-origin</a>
+  <button id="off">Open off-origin</button>
+  <button id="late">Late popup</button>
+</main>
+<script>
+  document.getElementById('off').addEventListener('click', () => {
+    const u = new URL(location.href);
+    u.hostname = 'foreign.test';
+    u.pathname = '/empty.html';
+    window.open(u.href, '_blank');
+  });
+  // Opens a popup 1s after the click, or when a test-provided gate (window.lateGate) resolves.
+  document.getElementById('late').addEventListener('click', () => {
+    (window.lateGate || new Promise((r) => setTimeout(r, 1000))).then(() => window.open('/empty.html', '_blank'));
+  });
+</script>
+</body></html>

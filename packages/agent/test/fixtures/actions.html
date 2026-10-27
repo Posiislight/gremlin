@@ -1,0 +1,47 @@
+<!doctype html>
+<html><head><title>Actions fixture</title></head>
+<body>
+<main>
+  <h1>Actions</h1>
+  <button data-testid="inc-btn" onclick="document.getElementById('count').textContent = String(Number(document.getElementById('count').textContent) + 1)">Increment</button>
+  <button onclick="document.getElementById('count').textContent = String(Number(document.getElementById('count').textContent) + 10)">Plain Button</button>
+  <span id="count">0</span>
+
+  <form id="f" aria-label="Echo form">
+    <label>Message <input id="msg" type="text" name="msg"></label>
+    <button type="submit">Send</button>
+  </form>
+  <div id="result"></div>
+
+  <label for="color">Color</label>
+  <select id="color"><option value="r">Red</option><option value="g">Green</option><option value="b">Blue</option></select>
+  <label>Keys <input id="keys" type="text"></label>
+  <div id="keyresult"></div>
+
+  <button id="hov" onmouseover="document.getElementById('tip').style.display='block'">Hover me</button>
+  <div id="tip" style="display:none">Tooltip text</div>
+
+  <label>Attachment <input id="file" type="file"></label>
+  <div id="fileresult"></div>
+
+  <button onclick="fetch('/api/hit', { method: 'POST', body: 'x' }).catch(() => {})">Post it</button>
+  <div id="ce" contenteditable="true" role="textbox"></div>
+  <input aria-label="Locked" disabled>
+  <button>alice@corp.com</button>
+
+  <div style="height:3000px">tall</div>
+</main>
+<script>
+  document.getElementById('f').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const r = await fetch('/api/echo', { method: 'POST', body: document.getElementById('msg').value });
+    document.getElementById('result').textContent = await r.text();
+  });
+  document.getElementById('keys').addEventListener('keydown', (e) => {
+    document.getElementById('keyresult').textContent = 'key:' + e.key;
+  });
+  document.getElementById('file').addEventListener('change', (e) => {
+    document.getElementById('fileresult').textContent = e.target.files[0].name;
+  });
+</script>
+</body></html>

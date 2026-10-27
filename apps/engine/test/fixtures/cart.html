@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PaddleCo — A little further out.</title><link rel="stylesheet" href="/shop.css"></head>
+<body>
+<div class="announcement">Made for the water. Built for the long way home.</div>
+<header class="top"><a class="logo" href="/cart.html">Paddle<span>Co</span></a><nav><span class="hide-sm">Boats</span><span class="hide-sm">Gear</span><a href="#cart" id="badge">Cart (0)</a></nav></header>
+<main>
+  <span class="eyebrow">The touring collection / No. 01</span>
+  <h1>A little further out.</h1>
+  <p class="sub">Quiet mornings. Open water. Gear that gets you there.</p>
+  <section class="product">
+    <div class="art"><svg viewBox="0 0 320 160" role="img" aria-label="Orange kayak"><ellipse cx="160" cy="132" rx="140" ry="12" fill="#0f6b5c" opacity=".18"/><path d="M12 92 C70 52 250 52 308 92 C250 122 70 122 12 92Z" fill="#f2a93b"/><path d="M12 92 C70 70 250 70 308 92" fill="none" stroke="#c9801a" stroke-width="4"/><ellipse cx="160" cy="84" rx="34" ry="12" fill="#1c1b22"/><path d="M100 40 L220 28" stroke="#1c1b22" stroke-width="5" stroke-linecap="round"/><ellipse cx="100" cy="40" rx="16" ry="7" fill="#1c1b22"/><ellipse cx="220" cy="28" rx="16" ry="7" fill="#1c1b22"/></svg></div>
+    <div class="info">
+      <span class="tag">Best seller</span>
+      <h2 class="name">Coastline Tourer</h2>
+      <p class="price">€499 <small>EUR · including tax</small></p>
+      <p class="desc">A stable 4.2 m touring kayak with a dry hatch and adjustable foot braces.</p>
+      <dl class="specs"><div><dt>Length</dt><dd>4.2 m</dd></div><div><dt>Use</dt><dd>Touring</dd></div><div><dt>Colour</dt><dd>Sunset</dd></div></dl>
+      <button type="button" id="add" class="primary">Add to cart</button>
+      <p class="delivery">Ready for your next adventure · Ships in 2–4 days</p>
+      <p id="status" role="status"></p>
+    </div>
+  </section>
+  <div class="reassurance"><span><i aria-hidden="true">↗</i> Delivery to your door</span><span><i aria-hidden="true">◇</i> Built to go the distance</span><span><i aria-hidden="true">≈</i> More time on the water</span></div>
+</main>
+<footer><strong>PaddleCo</strong><span>Find your own current.</span><span>Demo storefront · Gremlin QA</span></footer>
+<script>
+  // A third-party-looking console error on load: the fake judge dismisses it as noise.
+  console.error('analytics beacon failed to initialise');
+  let count = 0;
+  document.getElementById('add').addEventListener('click', async () => {
+    count += 1;
+    document.getElementById('badge').textContent = 'Cart (' + count + ')';
+    // The server answers 500 from the second add on (count travels in the query, so the server is stateless).
+    const res = await fetch('/api/cart?n=' + count, { method: 'POST', body: JSON.stringify({ sku: 'kayak' }) });
+    const status = document.getElementById('status');
+    status.textContent = res.ok ? 'Saved' : 'Could not save cart';
+    status.className = res.ok ? '' : 'error';
+  });
+</script>
+</body></html>

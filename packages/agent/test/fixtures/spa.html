@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><title>SPA fixture</title></head>
+<body>
+<nav>
+  <button id="go-products" type="button">Products</button>
+  <button id="go-home" type="button">Home</button>
+</nav>
+<main id="view"></main>
+<script>
+  const views = {
+    '/spa/home': '<h1>Home</h1><button type="button">Get started</button>',
+    '/spa/products': '<h1>Products</h1><button type="button">Add to cart</button><a href="/x">Details</a>',
+  };
+  function render() {
+    document.getElementById('view').innerHTML = views[location.pathname] || views['/spa/home'];
+  }
+  function go(p) { history.pushState({}, '', p); render(); }
+  document.getElementById('go-products').addEventListener('click', () => go('/spa/products'));
+  document.getElementById('go-home').addEventListener('click', () => go('/spa/home'));
+  history.replaceState({}, '', '/spa/home');
+  render();
+</script>
+</body></html>

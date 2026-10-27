@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Members store - PaddleCo</title><link rel="stylesheet" href="/shop.css"></head>
+<body>
+<div class="announcement">A little closer to your next adventure. Welcome to the club.</div>
+<header class="top"><a class="logo" href="/store.html">Paddle<span>Co</span></a><nav><span class="hide-sm">Boats</span><span class="hide-sm">Gear</span><a href="#cart" id="badge">Cart (0)</a></nav></header>
+<main>
+  <span class="eyebrow">PaddleCo / Members collection</span>
+  <h1>Your next escape.</h1>
+  <p class="sub">Welcome back. Member prices are applied at checkout.</p>
+  <section class="product">
+    <div class="art"><svg viewBox="0 0 320 160" role="img" aria-label="Orange kayak"><ellipse cx="160" cy="132" rx="140" ry="12" fill="#0f6b5c" opacity=".18"/><path d="M12 92 C70 52 250 52 308 92 C250 122 70 122 12 92Z" fill="#f2a93b"/><path d="M12 92 C70 70 250 70 308 92" fill="none" stroke="#c9801a" stroke-width="4"/><ellipse cx="160" cy="84" rx="34" ry="12" fill="#1c1b22"/><path d="M100 40 L220 28" stroke="#1c1b22" stroke-width="5" stroke-linecap="round"/><ellipse cx="100" cy="40" rx="16" ry="7" fill="#1c1b22"/><ellipse cx="220" cy="28" rx="16" ry="7" fill="#1c1b22"/></svg></div>
+    <div class="info">
+      <span class="tag">Member price</span>
+      <h2 class="name">Coastline Tourer</h2>
+      <p class="price">€449 <small>EUR · member price</small></p>
+      <p class="desc">A stable 4.2 m touring kayak with a dry hatch and adjustable foot braces.</p>
+      <dl class="specs"><div><dt>Length</dt><dd>4.2 m</dd></div><div><dt>Use</dt><dd>Touring</dd></div><div><dt>Colour</dt><dd>Sunset</dd></div></dl>
+      <button type="button" id="add" class="primary">Add to cart</button>
+      <p class="delivery">Ready for your next adventure · Ships in 2–4 days</p>
+      <p id="status" role="status"></p>
+    </div>
+  </section>
+</main>
+<footer><strong>PaddleCo</strong><span>Find your own current.</span><span>Demo storefront · Gremlin QA</span></footer>
+<script>
+  console.error('member analytics beacon failed to initialise');
+  let count = 0;
+  document.getElementById('add').addEventListener('click', async () => {
+    count += 1;
+    document.getElementById('badge').textContent = 'Cart (' + count + ')';
+    const res = await fetch('/api/cart?auth=1&n=' + count, { method: 'POST', body: JSON.stringify({ sku: 'kayak' }) });
+    const status = document.getElementById('status');
+    status.textContent = res.ok ? 'Saved' : 'Could not save cart';
+    status.className = res.ok ? '' : 'error';
+  });
+</script>
+</body></html>

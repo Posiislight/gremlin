@@ -1,0 +1,12 @@
+node_modules
+dist
+.turbo
+.env
+.env.demo
+.superpowers/
+playwright-report
+test-results
+*.log
+.next
+coverage
+.gremlin-storage

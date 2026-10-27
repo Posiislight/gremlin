@@ -1,0 +1,26 @@
+{
+  "_note": "TEST credentials for a local demo app only.",
+  "users": [
+    { "persona": "guest", "email": null, "password": null, "role": "guest", "bio": null },
+    { "persona": "customer", "email": "ann@example.com", "password": "Passw0rd!ann", "role": "customer", "name": "Ann Paddler", "bio": "" },
+    { "persona": "admin", "email": "root@example.com", "password": "Passw0rd!root", "role": "admin", "name": "Root Admin", "bio": "Runs the shop." }
+  ],
+  "products": [
+    { "id": 1, "name": "Riverrun Touring Kayak", "priceCents": 89900, "image": "/images/product-1.svg" },
+    { "id": 2, "name": "Tidewater Sea Kayak", "priceCents": 129900, "image": "/images/product-2.svg" },
+    { "id": 3, "name": "Carbon Paddle", "priceCents": 15900, "image": "/images/product-3.svg" },
+    { "id": 4, "name": "Alpine Dry Bag 20L", "priceCents": 3400, "image": "/images/product-4.svg" },
+    { "id": 5, "name": "Trail PFD Life Jacket", "priceCents": 11900, "image": "/images/product-5.svg" },
+    { "id": 6, "name": "Summit Spray Skirt", "priceCents": 7900, "image": "/images/product-6.svg" }
+  ],
+  "coupons": [
+    { "code": "SAVE10", "type": "percent", "value": 10 },
+    { "code": "SUMMER20", "type": "percent", "value": 20 },
+    { "code": "PADDLE5", "type": "fixed_cents", "value": 500 }
+  ],
+  "orders": [
+    { "id": "1001", "userEmail": "ann@example.com", "totalCents": 15900, "items": [{ "id": 3, "qty": 1 }] },
+    { "id": "1002", "userEmail": "bob@example.com", "totalCents": 6800, "items": [{ "id": 4, "qty": 2 }] },
+    { "id": "1003", "userEmail": "cara@example.com", "totalCents": 89900, "items": [{ "id": 1, "qty": 1 }] }
+  ]
+}

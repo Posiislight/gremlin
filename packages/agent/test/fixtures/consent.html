@@ -1,0 +1,10 @@
+<!doctype html>
+<html><head><title>Consent fixture</title></head>
+<body>
+<main><h1>Shop</h1><button id="buy">Buy</button></main>
+<div id="cookie-banner" class="consent-banner">
+  <p>We use cookies.</p>
+  <button id="accept" onclick="window.__clicked='accept'; this.closest('#cookie-banner').remove()">Accept all</button>
+  <button id="reject" onclick="window.__clicked='reject'; this.closest('#cookie-banner').remove()">Reject all</button>
+</div>
+</body></html>

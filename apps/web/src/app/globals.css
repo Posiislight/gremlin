@@ -1,0 +1,119 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --color-ink-950: #07070a;
+  --color-ink-900: #0b0b0f;
+  --color-ink-850: #0f0f14;
+  --color-ink-800: #14141a;
+  --color-ink-700: #1c1c24;
+  --color-ink-600: #272731;
+  --color-ink-500: #3a3a47;
+  --color-ink-400: #5b5b6b;
+  --color-ink-300: #8a8a9a;
+  --color-ink-200: #b4b4c2;
+  --color-ink-100: #dcdce6;
+  --color-ink-50: #f2f2f7;
+
+  --color-lime: #b9ff3b;
+  --color-lime-dim: #7fb320;
+  --color-p0: #ff4d5e;
+  --color-p1: #ff9a3d;
+  --color-p2: #f2d24b;
+  --color-p3: #7c8cff;
+  --color-ok: #46d68c;
+  --color-warn: #f2d24b;
+  --color-fail: #ff4d5e;
+
+  --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.35; transform: scale(0.75); }
+  }
+  --animate-rise: rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html, body {
+  background: var(--color-ink-950);
+  color: var(--color-ink-100);
+  font-family: var(--font-sans);
+  font-feature-settings: 'ss01', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-image:
+    radial-gradient(1200px 500px at 12% -10%, rgba(185, 255, 59, 0.06), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(124, 140, 255, 0.05), transparent 60%);
+  background-attachment: fixed;
+  min-height: 100dvh;
+}
+
+::selection { background: rgba(185, 255, 59, 0.28); color: #fff; }
+
+* { scrollbar-width: thin; scrollbar-color: var(--color-ink-600) transparent; }
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-ink-300);
+}
+
+.panel {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 40%), var(--color-ink-900);
+  border: 1px solid var(--color-ink-700);
+  border-radius: 10px;
+}
+
+.hairline-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, #000, transparent 90%);
+}
+
+.tnum { font-variant-numeric: tabular-nums; }
+
+button, a { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 2px solid var(--color-lime); outline-offset: 2px; border-radius: 4px; }
+
+/* rrweb-player: let our own chrome do the controlling */
+.rr-player { box-shadow: none !important; background: transparent !important; float: none !important; }
+.rr-player__frame { background: #fff; }
+.replayer-wrapper { transform-origin: top left; }
+.replayer-mouse-tail { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* replay studio layout: stacked on mobile, 3 columns + full-width timeline on desktop */
+.studio {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'player' 'timeline' 'steps' 'dev';
+}
+@media (min-width: 1024px) {
+  .studio {
+    grid-template-columns: 290px minmax(0, 1fr) 380px;
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas: 'steps player dev' 'timeline timeline timeline';
+    height: calc(100dvh - 12.5rem);
+    min-height: 520px;
+  }
+}

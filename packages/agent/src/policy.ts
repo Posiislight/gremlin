@@ -1,0 +1,158 @@
+import type { BrowserContext, Page } from 'playwright';
+import type { Signal } from '@gremlin/contract';
+import { decideRequest, safeUrl, validateOptions, type PolicyOptions } from './decide.js';
+import { BrowserInterceptor, contextIdOf, type InterceptClient } from './intercept.js';
+
+export type { PolicyOptions } from './decide.js';
+
+const swBlocked = new WeakSet<BrowserContext>();
+
+/** Declare that `context` was created with `serviceWorkers: 'block'` (createAgentContext does this). */
+export function markServiceWorkersBlocked(context: BrowserContext): void {
+  swBlocked.add(context);
+}
+
+export type PolicyHandle = {
+  /** Every request the policy denied (payment hosts, foreign navigations, read_only writes, WS). */
+  blocked: Signal[];
+  /** Parallel to `blocked`: CDP resource type, whether it was a redirect hop, and whether the URL had a query/fragment (stripped for hops). */
+  details: Array<{ resourceType: string; isRedirect: boolean; hadQuery: boolean; frameId: string | undefined; reason: string }>;
+  /**
+   * Requests whose originating context could NOT be determined (e.g. shared workers) that were failed because
+   * this policy would deny them. Diagnostics only: they are not signals of this context and are not in
+   * `blocked` / `count()` (the request may have belonged to any context of the browser).
+   */
+  unattributed: UnattributedBlock[];
+  /** Number of blocked requests so far; execute() diffs it around an action. */
+  count(): number;
+  /**
+   * Blocks recorded after `since` (a `count()` snapshot) whose frame belongs to the page: its frame tree (also
+   * frames removed meanwhile) and the frames of popups it opened (so a click opening a blocked popup counts).
+   */
+  blockedFor(page: Page, since: number): Promise<number>;
+  /** Number of popups `page` opened at or after `sinceMs` (a Date.now() value), as seen by Chromium target discovery. */
+  popupsOpenedBy(page: Page, sinceMs: number): Promise<number>;
+  /** True while Chromium-level interception is switched on for this browser. */
+  active(): boolean;
+  /** Requests currently held paused by the interceptor for this browser (should return to 0 when idle). */
+  paused(): number;
+  /**
+   * Stop enforcing now. When the context closes enforcement ends by itself, after a grace period (60 s) during
+   * which requests still attributed to the closed context (e.g. keepalive writes of closing pages) are judged.
+   */
+  dispose(): Promise<void>;
+};
+
+export type UnattributedBlock = {
+  method: string;
+  /** Query/fragment stripped for redirect hops, as in `blocked`. */
+  url: string;
+  resourceType: string;
+  isRedirect: boolean;
+  frameId: string | undefined;
+  /** `unattributed: <rule>` */
+  reason: string;
+  tMs: number;
+};
+
+/**
+ * Network-layer safety (spec §14). Rules live in decide.ts (`decideRequest`, pure); this file wires them to
+ * Chromium.
+ *
+ * Mechanism: a CDP `Fetch.enable` interceptor (intercept.ts) pauses every request AND every redirect hop;
+ * allowed requests are continued untouched (Chromium performs request and redirect natively, so page URL,
+ * cookies, streaming, SameSite and address-space behaviour are exactly the browser's), denied ones fail with
+ * `BlockedByClient` and are recorded as `policy` signals (redirect hops are recorded without query string).
+ * WebSocket handshakes are not visible to Fetch and are routed with Playwright's `context.routeWebSocket`.
+ *
+ * Limitations:
+ * - Chromium only (CDP). Navigation to non-http(s) schemes and bfcache restores issue no request, so they are
+ *   not judged.
+ * - Service workers must be blocked: use createAgentContext (serviceWorkers: 'block'), otherwise a worker could
+ *   answer requests without a network fetch, and its own requests cannot be attributed to the context.
+ *   installPolicy warns (or throws with `requireSwBlock`) for contexts not marked via markServiceWorkersBlocked.
+ * - Attribution to a context is tracked eagerly (targets, and every frame of every page via Page events; gone
+ *   targets/frames are tombstoned for 60 s, so closing pages are attributed). Requests whose context cannot be
+ *   determined (e.g. shared workers) FAIL CLOSED when some registered policy would deny them; they are noted in
+ *   `unattributed` of the policies that would deny them, never in `blocked` (see intercept.ts).
+ * - A read_only auth allowlist is matched on pathname segment boundaries; apiHosts/extraHosts are matched on
+ *   host (and port when given).
+ */
+export async function installPolicy(context: BrowserContext, opts: PolicyOptions): Promise<PolicyHandle> {
+  validateOptions(opts);
+  if (!swBlocked.has(context)) {
+    const msg = "installPolicy: this context was not created with serviceWorkers: 'block' (use createAgentContext); a service worker can answer requests without a network fetch";
+    if (opts.requireSwBlock) throw new Error(msg);
+    console.warn(msg);
+  }
+  const browser = context.browser();
+  if (!browser) throw new Error('installPolicy needs a context created from a Browser (not a persistent context)');
+  const now = opts.now ?? Date.now;
+  const t0 = now();
+  const blocked: Signal[] = [];
+  const details: PolicyHandle['details'] = [];
+  const unattributed: UnattributedBlock[] = [];
+
+  const deny = (method: string, url: string, resourceType: string, isRedirect: boolean, frameId: string | undefined, reason: string) => {
+    const s = safeUrl(url, isRedirect);
+    blocked.push({ kind: 'policy', method, url: s.url, tMs: now() - t0 });
+    details.push({ resourceType, isRedirect, hadQuery: s.hadQuery, frameId, reason });
+  };
+
+  const contextId = await contextIdOf(context);
+  const client: InterceptClient = {
+    contextId,
+    context,
+    decide(req) {
+      try {
+        return decideRequest(req, opts);
+      } catch {
+        return { allow: false, reason: 'policy rule error' }; // a rule bug must fail closed
+      }
+    },
+    record(req, reason) {
+      deny(req.method, req.url, req.resourceType, req.isRedirect, req.frameId, reason);
+    },
+    recordUnattributed(req, reason) {
+      const s = safeUrl(req.url, req.isRedirect);
+      unattributed.push({ method: req.method, url: s.url, resourceType: req.resourceType, isRedirect: req.isRedirect, frameId: req.frameId, reason, tMs: now() - t0 });
+    },
+  };
+  const interceptor = await BrowserInterceptor.for(browser);
+  await interceptor.register(client);
+
+  await context.routeWebSocket(/.*/, (ws) => {
+    const url = ws.url();
+    if (!decideRequest({ url, method: 'WS', resourceType: 'WebSocket', isRedirect: false }, opts).allow) {
+      deny('WS', url, 'WebSocket', false, undefined, 'websocket');
+      void ws.close({ code: 1008, reason: 'blocked by policy' });
+      return;
+    }
+    ws.connectToServer();
+  });
+
+  let disposed: Promise<void> | null = null;
+  const dispose = () => (disposed ??= interceptor.unregister(contextId));
+  // A closed context's policy keeps judging its late requests (keepalive / beacon writes of closing pages) for
+  // the tombstone period; an explicit dispose() stops enforcement at once.
+  context.once('close', () => {
+    if (!disposed) void interceptor.retire(contextId);
+  });
+
+  const blockedFor = async (page: Page, since: number) => {
+    const owned = await interceptor.ownedBy(page);
+    return details.slice(since).filter((d) => d.frameId !== undefined && owned(d.frameId)).length;
+  };
+
+  return {
+    blocked,
+    details,
+    unattributed,
+    count: () => blocked.length,
+    blockedFor,
+    popupsOpenedBy: (page, sinceMs) => interceptor.popupsOpenedBy(page, sinceMs),
+    active: () => interceptor.active(),
+    paused: () => interceptor.paused(),
+    dispose,
+  };
+}

@@ -1,0 +1,11 @@
+{
+  "name": "gremlin",
+  "owner": { "name": "Gremlin" },
+  "plugins": [
+    {
+      "name": "gremlin",
+      "source": "plugins/gremlin",
+      "description": "AI QA team for web apps: scans, regression scenarios, replay links and fix prompts."
+    }
+  ]
+}
