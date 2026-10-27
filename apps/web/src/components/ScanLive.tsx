@@ -1,14 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useReducer, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useReducer } from 'react';
 import { apiPath } from '@/lib/client';
+import { createSseParser } from '@/lib/sse';
 import { groupByPriority, formatUsd, formatTokens, relativeTime } from '@/lib/replay/format';
 import { mockScanScript } from '@/lib/mock/data';
 import type { ApiFindingSummary, ApiRunSummary, ScanEvent } from '@/lib/types';
 import { PriorityBadge, StatusPill } from './ui';
 
-const STAGES = ['queued', 'discovering', 'scanning', 'confirming', 'reflecting', 'done'] as const;
+const STAGES = ['queued', 'scanning', 'done'] as const;
 const TERMINAL = new Set(['done', 'failed', 'partial']);
 
 type RunView = { id: string; kind: string; status: string; steps: number; intent: string | null; outcome: string | null };
@@ -45,7 +47,7 @@ function reduce(s: State, a: Action): State {
       };
     }
     case 'finding': {
-      if (s.findings.some((f) => f.id === ev.finding.id)) return s;
+      if (s.findings.some((f) => f.id === ev.finding.id)) return { ...s, findings: s.findings.map((f) => f.id === ev.finding.id ? ev.finding : f) };
       return { ...s, findings: [...s.findings, ev.finding], feed: push(`finding ${ev.finding.priority}: ${ev.finding.title}`, 'new') };
     }
     case 'done':
@@ -59,6 +61,7 @@ export function ScanLive({
   scanId: string; baseUrl: string; focus: string | null; teamSize: number; startedAt: string | null; initialStatus: string; initialCost: number;
   initialRuns: ApiRunSummary[]; initialFindings: ApiFindingSummary[]; tokens: number; mock: boolean;
 }) {
+  const router = useRouter();
   const [s, dispatch] = useReducer(reduce, undefined, (): State => ({
     status: initialStatus,
     costUsd: initialCost,
@@ -67,28 +70,44 @@ export function ScanLive({
     feed: [],
     live: !TERMINAL.has(initialStatus),
   }));
-  const started = useRef(false);
 
   useEffect(() => {
-    if (TERMINAL.has(initialStatus) || started.current) return;
-    started.current = true;
+    if (TERMINAL.has(initialStatus)) return;
     if (mock) {
       const timers = mockScanScript().map(({ at, event }) => window.setTimeout(() => dispatch({ type: 'event', ev: event }), at));
       return () => timers.forEach(window.clearTimeout);
     }
-    const es = new EventSource(apiPath(`/v1/scans/${encodeURIComponent(scanId)}/events`));
-    const handler = (e: MessageEvent<string>) => {
+    const ctl = new AbortController();
+    (async () => {
       try {
-        dispatch({ type: 'event', ev: JSON.parse(e.data) as ScanEvent });
+        const res = await fetch(apiPath(`/v1/scans/${encodeURIComponent(scanId)}/events`), {
+          headers: { accept: 'text/event-stream' },
+          signal: ctl.signal,
+        });
+        if (!res.ok || !res.body) throw new Error(String(res.status));
+        dispatch({ type: 'live', live: true });
+        const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+        const parser = createSseParser();
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          for (const m of parser.push(value)) {
+            try {
+              const event = JSON.parse(m.data) as ScanEvent;
+              dispatch({ type: 'event', ev: event });
+              if (event.type === 'done') router.refresh();
+            } catch {
+              /* ignore malformed frames */
+            }
+          }
+        }
       } catch {
-        /* ignore malformed frames */
+        /* aborted or dropped */
       }
-    };
-    for (const t of ['scan', 'run', 'step', 'finding', 'done']) es.addEventListener(t, handler as EventListener);
-    es.onerror = () => dispatch({ type: 'live', live: false });
-    es.onopen = () => dispatch({ type: 'live', live: true });
-    return () => es.close();
-  }, [initialStatus, mock, scanId]);
+      if (!ctl.signal.aborted) dispatch({ type: 'live', live: false });
+    })();
+    return () => ctl.abort();
+  }, [initialStatus, mock, scanId, router]);
 
   const stageIdx = Math.max(0, STAGES.indexOf(s.status as (typeof STAGES)[number]));
   const failed = s.status === 'failed' || s.status === 'partial';
@@ -119,7 +138,7 @@ export function ScanLive({
             ))}
           </dl>
         </div>
-        <ol className="mt-5 grid grid-cols-6 gap-1.5" aria-label="Scan progress">
+        <ol className="mt-5 grid grid-cols-3 gap-1.5" aria-label="Scan progress">
           {STAGES.map((st, i) => {
             const done = i < stageIdx || s.status === 'done';
             const cur = i === stageIdx && s.status !== 'done' && !failed;

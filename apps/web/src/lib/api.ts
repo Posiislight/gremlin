@@ -1,4 +1,4 @@
-// Server-side engine client with a mock fallback. Spec section 16 paths; types from @gremlin/contract (api.ts).
+// Server-side engine client. Sample data requires explicit mock mode (or an unconfigured offline preview).
 // The API key (GREMLIN_API_KEY) is only ever read here and in the /api/gremlin proxy, never shipped to the browser.
 import type {
   ApiFindingDetail,
@@ -41,7 +41,7 @@ export async function engineGet<T>(path: string): Promise<EngineResult<T>> {
   }
 }
 
-/** Engine data when reachable; mock data only when the engine is unreachable (or mock mode is forced). */
+/** A configured live engine must never silently turn into a simulated demo. */
 async function sourced<T>(path: string, pick: (raw: never) => T, mock: () => T, onHttp?: (status: number) => T | null): Promise<Sourced<T> | null> {
   const r = await engineGet<unknown>(path);
   if (r.kind === 'ok') return { data: pick(r.data as never), source: 'engine' };
@@ -49,11 +49,12 @@ async function sourced<T>(path: string, pick: (raw: never) => T, mock: () => T, 
     const v = onHttp?.(r.status);
     return v == null ? null : { data: v, source: 'engine' };
   }
+  if (!FORCE_MOCK && ENGINE_BASE) throw new Error('engine_unreachable');
   return { data: mock(), source: 'mock' };
 }
 
-/** Signed artifact URLs from the engine are root-relative (/v1/files/...); route them through the auth proxy. */
-export const proxied = (u: string | null | undefined): string | null => (u ? (u.startsWith('/v1/') ? `/api/gremlin${u}` : u) : null);
+/** Signed artifact URLs from the engine are root-relative (/v1/files/...); they carry their own signature, so prefix the engine base URL. */
+export const proxied = (u: string | null | undefined): string | null => (u ? (u.startsWith('/') && ENGINE_BASE ? `${ENGINE_BASE}${u}` : u) : null);
 
 export async function listProjects(): Promise<Sourced<ApiProject[]>> {
   return (await sourced<ApiProject[]>('/v1/projects', (r: { projects: ApiProject[] }) => r.projects, mockProjects, () => []))!;
@@ -85,6 +86,7 @@ export async function getFinding(id: string): Promise<Sourced<ApiFindingDetail> 
 export async function getFixPrompt(id: string): Promise<string> {
   const r = await engineGet<string | { prompt: string }>(`/v1/findings/${encodeURIComponent(id)}/prompt`);
   if (r.kind === 'ok') return typeof r.data === 'string' ? r.data : r.data.prompt;
+  if (r.kind === 'unreachable' && !FORCE_MOCK && ENGINE_BASE) throw new Error('engine_unreachable');
   return r.kind === 'unreachable' ? mockFixPrompt(id) : '';
 }
 
