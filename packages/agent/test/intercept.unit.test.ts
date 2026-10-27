@@ -97,6 +97,26 @@ describe('unknown-origin requests (faked Fetch.requestPaused)', () => {
     await ic.unregister('ctx-ro');
   });
 
+  it('a closed context keeps its policy for late requests (grace period), then it is dropped', async () => {
+    const { ic, session } = await fakeInterceptor();
+    const ro = client('ctx-ro', 'read_only');
+    await ic.register(ro.c);
+    session.emit('Target.targetCreated', { targetInfo: { targetId: 'T1', type: 'page', browserContextId: 'ctx-ro' } });
+    session.emit('Target.targetDestroyed', { targetId: 'T1' });
+    await ic.retire('ctx-ro'); // the context closed
+    expect(ic.active()).toBe(true);
+    // a keepalive write of the closed page, paused late: still judged by (and recorded on) its own policy
+    session.emit('Fetch.requestPaused', paused('r1', 'POST', 'http://127.0.0.1:4000/api/hit', 'T1'));
+    expect(await settleUntilReleased(session, ic, 'r1')).toEqual(['Fetch.failRequest']);
+    expect(ro.recorded).toHaveLength(1);
+    expect(ro.unattributed).toEqual([]);
+    ic.tombstoneMs = 0;
+    await new Promise((r) => setTimeout(r, 5));
+    ic.prune();
+    await expect.poll(() => ic.active()).toBe(false);
+    expect(ic.stats().retiredClients).toBe(0);
+  });
+
   it('a payment host of unknown origin is failed under any policy', async () => {
     const { ic, session } = await fakeInterceptor();
     const full = client('ctx-full', 'full');

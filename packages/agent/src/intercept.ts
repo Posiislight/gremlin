@@ -45,6 +45,7 @@ const MAX_FRAMES = 20_000;
 /** Diagnostic sizes of the attribution maps (tests). */
 export type InterceptStats = {
   clients: number;
+  retiredClients: number;
   trackedPages: number;
   targets: number;
   destroyedTargets: number;
@@ -116,6 +117,11 @@ export class BrowserInterceptor {
   private readonly browser: Browser;
   private readonly session: CDPSession;
   private readonly clients = new Map<string, InterceptClient>();
+  /** Clients whose context closed, still judged for tombstoneMs (see retire()). */
+  private readonly retired = new Map<string, { client: InterceptClient; at: number }>();
+  private judges(): InterceptClient[] {
+    return [...this.clients.values(), ...[...this.retired.values()].map((r) => r.client)];
+  }
   private readonly targetCtx = new Map<string, string>();
   private readonly destroyedAt = new Map<string, number>();
   private readonly opener = new Map<string, string>(); // popup target id -> opener target id
@@ -169,7 +175,7 @@ export class BrowserInterceptor {
   private enabled = false;
   private sync(): Promise<void> {
     this.op = this.op.then(async () => {
-      const want = this.clients.size > 0;
+      const want = this.clients.size + this.retired.size > 0;
       this.setPruner(want);
       if (want && !this.tracking) {
         this.tracking = true;
@@ -200,6 +206,14 @@ export class BrowserInterceptor {
   /** Drop tombstones older than tombstoneMs (all of them with `all`). Public for tests. */
   prune(all = false): void {
     const now = Date.now();
+    let expired = false;
+    for (const [cid, r] of this.retired) {
+      if (all || now - r.at > this.tombstoneMs) {
+        this.retired.delete(cid);
+        expired = true;
+      }
+    }
+    if (expired) void this.sync(); // may switch interception off
     for (const [t, at] of this.destroyedAt) {
       if (all || now - at > this.tombstoneMs) {
         this.destroyedAt.delete(t);
@@ -256,6 +270,7 @@ export class BrowserInterceptor {
   stats(): InterceptStats {
     return {
       clients: this.clients.size,
+      retiredClients: this.retired.size,
       trackedPages: this.tracked.size,
       targets: this.targetCtx.size,
       destroyedTargets: this.destroyedAt.size,
@@ -272,9 +287,23 @@ export class BrowserInterceptor {
     await this.sync();
   }
 
-  /** Stop judging a context; interception is switched off when no client is left (the session itself lives as long as the browser). */
+  /**
+   * The client's context CLOSED: keep judging requests attributed to it for tombstoneMs. Requests a closing page
+   * issued (keepalive fetch / sendBeacon in pagehide) are owned by the browser process and can be paused well
+   * after the context is gone on a loaded machine; they must still meet that context's policy.
+   */
+  async retire(contextId: string): Promise<void> {
+    const c = this.clients.get(contextId);
+    if (!c) return;
+    this.clients.delete(contextId);
+    this.retired.set(contextId, { client: c, at: Date.now() });
+    await this.sync();
+  }
+
+  /** Stop judging a context now (explicit dispose); interception is switched off when no client is left (the session itself lives as long as the browser). */
   async unregister(contextId: string): Promise<void> {
     this.clients.delete(contextId);
+    this.retired.delete(contextId);
     for (const [f, c] of this.frameCtx) if (c === contextId && this.frameGoneAt.has(f)) this.forgetFrame(f);
     for (const [t, c] of this.targetCtx) {
       if (c === contextId && this.destroyedAt.has(t)) {
@@ -427,7 +456,7 @@ export class BrowserInterceptor {
         }
       } else if (a.kind === 'unknown') {
         // Fail only if some policy would deny it; never record it as a signal of a context (see class comment).
-        for (const c of this.clients.values()) {
+        for (const c of this.judges()) {
           const d = c.decide(req);
           if (!d.allow) {
             block = true;
@@ -454,7 +483,7 @@ export class BrowserInterceptor {
       cid = lookup();
     }
     if (!cid) return { kind: 'unknown' };
-    const client = this.clients.get(cid);
+    const client = this.clients.get(cid) ?? this.retired.get(cid)?.client;
     return client ? { kind: 'client', client } : { kind: 'other' };
   }
 

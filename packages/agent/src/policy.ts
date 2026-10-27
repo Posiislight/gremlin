@@ -36,7 +36,10 @@ export type PolicyHandle = {
   active(): boolean;
   /** Requests currently held paused by the interceptor for this browser (should return to 0 when idle). */
   paused(): number;
-  /** Stop enforcing (also done when the context closes). */
+  /**
+   * Stop enforcing now. When the context closes enforcement ends by itself, after a grace period (60 s) during
+   * which requests still attributed to the closed context (e.g. keepalive writes of closing pages) are judged.
+   */
   dispose(): Promise<void>;
 };
 
@@ -130,7 +133,11 @@ export async function installPolicy(context: BrowserContext, opts: PolicyOptions
 
   let disposed: Promise<void> | null = null;
   const dispose = () => (disposed ??= interceptor.unregister(contextId));
-  context.once('close', () => void dispose());
+  // A closed context's policy keeps judging its late requests (keepalive / beacon writes of closing pages) for
+  // the tombstone period; an explicit dispose() stops enforcement at once.
+  context.once('close', () => {
+    if (!disposed) void interceptor.retire(contextId);
+  });
 
   const blockedFor = async (page: Page, since: number) => {
     const owned = await interceptor.ownedBy(page);
