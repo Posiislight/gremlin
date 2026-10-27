@@ -14,3 +14,5 @@ export type { AgentContextOptions } from './context.js';
 export { dismissConsent } from './consent.js';
 export { execute } from './execute.js';
 export type { ExecContext, ExecResult } from './execute.js';
+export { startRecording, buildTimeline } from './recorder/index.js';
+export type { Recorder, RecorderOptions } from './recorder/index.js';
