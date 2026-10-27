@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getFinding, getFixPrompt } from '@/lib/api';
 import { buildReplayLink } from '@/lib/replay/deeplink';
-import { formatMs, relativeTime, shortUrl } from '@/lib/replay/format';
+import { formatMs, relativeTime, shortId, shortUrl } from '@/lib/replay/format';
 import { FindingActions } from '@/components/FindingActions';
 import { PriorityBadge, SourceBadge } from '@/components/ui';
 
@@ -22,7 +22,7 @@ export default async function FindingPage({ params }: { params: Promise<{ id: st
   return (
     <div className="animate-rise space-y-5">
       <div className="flex items-center gap-3 font-mono text-[12px] text-ink-300">
-        {f.scanId ? <Link href={`/scans/${f.scanId}`} className="hover:text-ink-50">scan {f.scanId.replace('scn_', '#')}</Link> : <span>scan</span>}
+        {f.scanId ? <Link href={`/scans/${f.scanId}`} className="hover:text-ink-50">scan {shortId(f.scanId)}</Link> : <span>scan</span>}
         <span className="text-ink-500">/</span>
         <span className="text-ink-100">{f.id}</span>
         <SourceBadge source={res.source} />
@@ -110,7 +110,7 @@ export default async function FindingPage({ params }: { params: Promise<{ id: st
                 <li key={i}>
                   <Link href={buildReplayLink('', o.runId, { step: o.stepN, finding: f.id })} className="group block px-4 py-3 transition-colors hover:bg-ink-800/60">
                     <div className="flex items-center justify-between font-mono text-[12px]">
-                      <span className="text-ink-50">{o.runId.replace('run_', 'agent ')} · step {o.stepN}</span>
+                      <span className="text-ink-50">agent {shortId(o.runId)} · step {o.stepN}</span>
                       <span className="tnum text-ink-300">{formatMs(o.tMs)}</span>
                     </div>
                     <p className="mt-1 line-clamp-2 text-[12.5px] text-ink-300">{o.intent ?? shortUrl(f.url ?? '')}</p>

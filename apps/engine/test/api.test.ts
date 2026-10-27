@@ -353,6 +353,9 @@ describe('GET /v1/scans/:id/events', () => {
     const types = events.map((e) => e.type);
     expect(types[0]).toBe('scan');
     expect(types).toContain('step');
+    const step = events.find((e) => e.type === 'step');
+    expect(step && step.type === 'step' && step.screenshotUrl).toMatch(/^\/v1\/files\/runs\/r\/s1\.png\?expires=\d+&sig=[0-9a-f]+$/);
+    expect(step && step.type === 'step' && step.actionType).toBeTruthy();
     expect(types.filter((t) => t === 'finding')).toHaveLength(2);
     expect(types.at(-1)).toBe('done');
     expect(events.some((e) => e.type === 'run' && e.status === 'done')).toBe(true);

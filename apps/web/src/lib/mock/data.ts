@@ -254,8 +254,17 @@ Then run: gremlin findings verify ${f.id} --url <preview-url>`;
 /** Scripted SSE-like stream for the live scan page when the engine is unavailable. Each entry fires after `at` ms. */
 export function mockScanScript(): { at: number; event: ScanEvent }[] {
   const f = mockFindings();
+  const scenes: ShopScene[] = [
+    { page: 'shop', cart: 0, focus: { x: 84, y: 564, w: 320, h: 48 } },
+    { page: 'shop', cart: 1, focus: { x: 476, y: 564, w: 320, h: 48 } },
+    { page: 'cart', cart: 1 },
+    { page: 'cart', cart: 2, error: 'Could not save cart', focus: { x: 64, y: 190, w: 520, h: 52 } },
+    { page: 'checkout', cart: 2, focus: { x: 64, y: 340, w: 220, h: 52 } },
+  ];
   const stepEv = (at: number, runId: string, n: number, intent: string, outcome = 'ok'): { at: number; event: ScanEvent } => ({
-    at, event: { type: 'step', runId, stepId: `${runId}_${n}`, n, intent, outcome, tMs: n * 1400 },
+    at, event: { type: 'step', runId, stepId: `${runId}_${n}`, n, intent, outcome, tMs: n * 1400,
+      actionType: outcome === 'error' ? 'expect' : n % 3 === 0 ? 'type' : 'click',
+      screenshotUrl: shopSvg(scenes[(n + (outcome === 'error' ? 3 : 0)) % scenes.length]!) },
   });
   return [
     { at: 400, event: { type: 'scan', scanId: 'scn_live', status: 'scanning', costUsd: 0.62 } },

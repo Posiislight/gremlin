@@ -2,7 +2,8 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { environments, type Db } from '@gremlin/db';
-import { saveCredentials, verifyCredentialLink } from '../credentials.js';
+import { authenticate } from '../auth.js';
+import { DEFAULT_PERSONA, ensureEnvironment, saveCredentials, verifyCredentialLink } from '../credentials.js';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -81,6 +82,28 @@ ${error ? `<div class="err">${esc(error)}</div>` : ''}
       if (!env || env.projectId !== claims.projectId) return expired(reply);
       await saveCredentials(db, env.id, claims.persona, parsed.data, secret);
       return send(reply, 200, page('Login saved', `<h1 class="ok">Login saved</h1><p>You can close this tab and go back to Alan. Tell it you've added the login.</p>`));
+    });
+  };
+}
+
+const apiBody = z.object({
+  url: z.url({ protocol: /^https?$/ }),
+  username: z.string().min(1).max(320),
+  password: z.string().min(1).max(512),
+  persona: z.string().min(1).max(100).optional(),
+});
+
+/** POST /v1/credentials (project API key): the dashboard saves a test login for a site before starting a scan. */
+export function credentialApiRoutes(deps: { db: Db; secret: string }) {
+  const { db, secret } = deps;
+  return async function (app: FastifyInstance): Promise<void> {
+    app.addHook('onRequest', authenticate(db));
+    app.post('/v1/credentials', async (req, reply) => {
+      const parsed = apiBody.safeParse(req.body);
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_request' });
+      const environmentId = await ensureEnvironment(db, req.projectId, parsed.data.url);
+      await saveCredentials(db, environmentId, parsed.data.persona ?? DEFAULT_PERSONA, { username: parsed.data.username, password: parsed.data.password }, secret);
+      return reply.code(204).send();
     });
   };
 }

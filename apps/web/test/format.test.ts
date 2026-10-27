@@ -19,6 +19,15 @@ import { consoleEntries, filterConsole, networkEntries, waterfall } from '../src
 import { metricDelta, sparkPath } from '../src/lib/replay/metrics';
 import type { MetricPoint, Signal } from '../src/lib/types';
 
+describe('shortId', () => {
+  it('keeps ids short for display', async () => {
+    const { shortId } = await import('../src/lib/replay/format');
+    expect(shortId('emil4sqpx3ksuosefsgwe8zy')).toBe('#emil4s');
+    expect(shortId('scn_live')).toBe('#live');
+    expect(shortId('run_demo')).toBe('#demo');
+  });
+});
+
 describe('format', () => {
   it('formats times', () => {
     expect(formatMs(0)).toBe('0:00.000');

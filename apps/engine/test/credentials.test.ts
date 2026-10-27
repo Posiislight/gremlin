@@ -13,7 +13,7 @@ import {
   signCredentialLink,
   verifyCredentialLink,
 } from '../src/credentials.js';
-import { credentialRoutes } from '../src/routes/credentials.js';
+import { credentialApiRoutes, credentialRoutes } from '../src/routes/credentials.js';
 import { FIXTURE_LOGIN, startFixtureServer } from './fixtureServer.js';
 
 const SECRET = 'unit-test-secret';
@@ -50,6 +50,7 @@ describe('credentials via MCP and the secure form', () => {
   let client: Client;
   let otherClient: Client;
   let projectId: string;
+  let apiKey: string;
 
   async function connect(key: string): Promise<Client> {
     const c = new Client({ name: 'test', version: '0' });
@@ -71,12 +72,14 @@ describe('credentials via MCP and the secure form', () => {
     app = Fastify({ routerOptions: { maxParamLength: 1024 } });
     app.register(mcpRoutes({ db, queues, secret: SECRET }));
     app.register(credentialRoutes({ db, secret: SECRET }));
+    app.register(credentialApiRoutes({ db, secret: SECRET }));
     await app.listen({ port: 0, host: '127.0.0.1' });
     base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
     const [p] = await db.insert(projects).values({ name: 'a' }).returning();
     const [q] = await db.insert(projects).values({ name: 'b' }).returning();
     projectId = p!.id;
-    client = await connect(await createApiKey(db, projectId));
+    apiKey = await createApiKey(db, projectId);
+    client = await connect(apiKey);
     otherClient = await connect(await createApiKey(db, q!.id));
   });
 
@@ -129,6 +132,19 @@ describe('credentials via MCP and the secure form', () => {
 
     const started = await call(client, 'start_scan', { url: 'http://127.0.0.1:3100/store.html', teamSize: 1 });
     expect(started.data.loginSaved).toBe(true);
+  });
+
+  it('saves a login from the dashboard REST endpoint (key required, no echo)', async () => {
+    const body = JSON.stringify({ url: 'http://127.0.0.1:3555/store.html', username: 'ui@test.dev', password: PASSWORD });
+    const headers = { 'content-type': 'application/json' };
+    expect((await fetch(`${base}/v1/credentials`, { method: 'POST', headers, body })).status).toBe(401);
+    const ok = await fetch(`${base}/v1/credentials`, { method: 'POST', headers: { ...headers, authorization: `Bearer ${apiKey}` }, body });
+    expect(ok.status).toBe(204);
+    expect(await ok.text()).toBe('');
+    const bad = await fetch(`${base}/v1/credentials`, { method: 'POST', headers: { ...headers, authorization: `Bearer ${apiKey}` }, body: '{"url":"nope"}' });
+    expect(bad.status).toBe(400);
+    const status = await call(client, 'request_credentials', { url: 'http://127.0.0.1:3555/' });
+    expect(status.data.alreadySaved).toBe(true);
   });
 
   it('rejects expired or forged links and cross-project environments', async () => {

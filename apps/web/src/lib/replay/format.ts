@@ -141,3 +141,9 @@ export function httpTone(
   if (status >= 300) return 'redirect';
   return 'ok';
 }
+
+/** Short display form of a scan/run/finding id: `#` plus the first 6 characters (mock ids like `scn_live` become `#live`). */
+export function shortId(id: string): string {
+  const bare = id.replace(/^(scn|run|fnd)_/, '');
+  return `#${bare.slice(0, 6)}`;
+}

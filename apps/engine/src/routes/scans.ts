@@ -5,7 +5,7 @@ import { environments, scans, type Db } from '@gremlin/db';
 import { authenticate } from '../auth.js';
 import type { Queues } from '../queue.js';
 
-const httpUrl = z.url().refine((u) => /^https?:$/.test(new URL(u).protocol), 'url must be http(s)');
+const httpUrl = z.url({ protocol: /^https?$/ });
 
 export const createScanBody = z.object({
   url: httpUrl,

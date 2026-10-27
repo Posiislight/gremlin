@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { personas, type Db } from '@gremlin/db';
+import { environments, personas, type Db } from '@gremlin/db';
 
 export const DEFAULT_PERSONA = 'default';
 export const CREDENTIAL_LINK_TTL_S = 15 * 60;
@@ -64,6 +64,16 @@ export async function saveCredentials(db: Db, environmentId: string, persona: st
     .limit(1);
   if (existing) await db.update(personas).set({ credentialsEnc: enc }).where(eq(personas.id, existing.id));
   else await db.insert(personas).values({ environmentId, name: persona, credentialsEnc: enc });
+}
+
+/** The project's environment for a URL's origin, created (read_only) if it does not exist yet. */
+export async function ensureEnvironment(db: Db, projectId: string, url: string): Promise<string> {
+  const origin = new URL(url).origin;
+  const [existing] = await db.select({ id: environments.id }).from(environments)
+    .where(and(eq(environments.projectId, projectId), eq(environments.baseUrl, origin))).limit(1);
+  if (existing) return existing.id;
+  const [env] = await db.insert(environments).values({ projectId, baseUrl: origin, allowedActions: 'read_only' }).returning({ id: environments.id });
+  return env!.id;
 }
 
 /** Names of personas with stored credentials for an environment (never the values). */

@@ -157,6 +157,10 @@ export const ScanEvent = z.discriminatedUnion('type', [
     intent: z.string().nullable(),
     outcome: z.string().nullable(),
     tMs: z.number(),
+    /** Signed relative URL of the screenshot taken after this step (live view). */
+    screenshotUrl: z.string().nullable().optional(),
+    /** Action type, e.g. click, type, goto. */
+    actionType: z.string().nullable().optional(),
   }),
   z.object({ type: z.literal('finding'), finding: ApiFindingSummary }),
   z.object({ type: z.literal('done'), status: z.string() }),

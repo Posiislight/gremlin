@@ -7,7 +7,7 @@ import { apiRoutes } from './routes/api.js';
 import { eventRoutes } from './routes/events.js';
 import { registerCors } from './cors.js';
 import { mcpRoutes } from './mcp/index.js';
-import { credentialRoutes } from './routes/credentials.js';
+import { credentialApiRoutes, credentialRoutes } from './routes/credentials.js';
 import type { Queues } from './queue.js';
 
 export interface ServerDeps {
@@ -34,10 +34,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.register(scanRoutes({ db: deps.db, queues: deps.queues }));
   app.register(apiRoutes({ db: deps.db, storage: deps.storage, secret }));
   app.register(
-    eventRoutes({ db: deps.db, webOrigin, ...(deps.eventPollMs ? { pollMs: deps.eventPollMs } : {}) }),
+    eventRoutes({ db: deps.db, webOrigin, secret, ...(deps.eventPollMs ? { pollMs: deps.eventPollMs } : {}) }),
   );
   app.register(mcpRoutes({ db: deps.db, queues: deps.queues, secret, webUrl: process.env.GREMLIN_WEB_URL ?? 'http://localhost:3200' }));
   app.register(credentialRoutes({ db: deps.db, secret }));
+  app.register(credentialApiRoutes({ db: deps.db, secret }));
   app.register(fileRoutes({ storage: deps.storage, secret }));
   return app;
 }

@@ -7,6 +7,7 @@ import { authenticate } from '../auth.js';
 import { inScan } from '../scan-findings.js';
 import { corsHeaders } from '../cors.js';
 import { ownedScan } from './access.js';
+import { signFilePath } from './files.js';
 import { summarizeFindings } from './serialize.js';
 
 const TERMINAL = new Set(['done', 'partial', 'failed', 'error', 'completed', 'cancelled']);
@@ -15,6 +16,8 @@ const MAX_STREAM_MS = 60 * 60 * 1000;
 export interface EventsOptions {
   db: Db;
   webOrigin: string | undefined;
+  /** HMAC secret for signed screenshot URLs. */
+  secret?: string;
   pollMs?: number;
 }
 
@@ -80,7 +83,11 @@ export function eventRoutes(opts: EventsOptions) {
           for (const s of rows) {
             if (seenSteps.has(s.id)) continue;
             seenSteps.add(s.id);
-            send({ type: 'step', runId: s.agentRunId, stepId: s.id, n: s.n, intent: s.intent, outcome: s.outcome, tMs: s.tMs });
+            send({
+              type: 'step', runId: s.agentRunId, stepId: s.id, n: s.n, intent: s.intent, outcome: s.outcome, tMs: s.tMs,
+              screenshotUrl: s.screenshotKey && opts.secret ? signFilePath(s.screenshotKey, opts.secret) : null,
+              actionType: s.actionJson?.type ?? null,
+            });
           }
         }
         const finds = await summarizeFindings(db, await db.select().from(findings).where(inScan(scanId)));

@@ -5,15 +5,17 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useReducer } from 'react';
 import { apiPath } from '@/lib/client';
 import { createSseParser } from '@/lib/sse';
-import { groupByPriority, formatUsd, formatTokens, relativeTime } from '@/lib/replay/format';
+import { groupByPriority, formatUsd, formatTokens, relativeTime, shortId } from '@/lib/replay/format';
 import { mockScanScript } from '@/lib/mock/data';
 import type { ApiFindingSummary, ApiRunSummary, ScanEvent } from '@/lib/types';
+import { LiveView, type Frame, type FindingFlash } from './LiveView';
 import { PriorityBadge, StatusPill } from './ui';
 
 const STAGES = ['queued', 'scanning', 'done'] as const;
 const TERMINAL = new Set(['done', 'failed', 'partial']);
 
-type RunView = { id: string; kind: string; status: string; steps: number; intent: string | null; outcome: string | null };
+type RunView = { id: string; kind: string; status: string; steps: number; intent: string | null; outcome: string | null; frames: Frame[] };
+const MAX_FRAMES = 24;
 type State = {
   status: string;
   costUsd: number;
@@ -21,10 +23,17 @@ type State = {
   findings: ApiFindingSummary[];
   feed: { id: number; text: string; tone: 'ok' | 'bad' | 'new' | 'dim' }[];
   live: boolean;
+  flash: FindingFlash;
 };
 
 type Action = { type: 'event'; ev: ScanEvent } | { type: 'live'; live: boolean };
 let feedId = 0;
+
+/** 1-based position of a run among the scan's agents (stable: runs are added in order). */
+function agentNo(s: State, runId: string): number {
+  const i = Object.keys(s.runs).indexOf(runId);
+  return (i < 0 ? Object.keys(s.runs).length : i) + 1;
+}
 
 function reduce(s: State, a: Action): State {
   if (a.type === 'live') return { ...s, live: a.live };
@@ -35,20 +44,23 @@ function reduce(s: State, a: Action): State {
       return { ...s, status: ev.status, costUsd: ev.costUsd, feed: push(`scan ${ev.status}`, 'dim') };
     case 'run': {
       const prev = s.runs[ev.runId];
-      return { ...s, runs: { ...s.runs, [ev.runId]: { id: ev.runId, kind: ev.kind, status: ev.status, steps: prev?.steps ?? 0, intent: prev?.intent ?? null, outcome: prev?.outcome ?? null } } };
+      return { ...s, runs: { ...s.runs, [ev.runId]: { id: ev.runId, kind: ev.kind, status: ev.status, steps: prev?.steps ?? 0, intent: prev?.intent ?? null, outcome: prev?.outcome ?? null, frames: prev?.frames ?? [] } } };
     }
     case 'step': {
-      const prev = s.runs[ev.runId] ?? { id: ev.runId, kind: 'scan', status: 'running', steps: 0, intent: null, outcome: null };
+      const prev = s.runs[ev.runId] ?? { id: ev.runId, kind: 'scan', status: 'running', steps: 0, intent: null, outcome: null, frames: [] };
+      const frames = ev.screenshotUrl
+        ? [...prev.frames.filter((f) => f.n !== ev.n), { n: ev.n, url: ev.screenshotUrl, intent: ev.intent, outcome: ev.outcome, actionType: ev.actionType ?? null }].sort((a, b) => a.n - b.n).slice(-MAX_FRAMES)
+        : prev.frames;
       const bad = ev.outcome === 'error';
       return {
         ...s,
-        runs: { ...s.runs, [ev.runId]: { ...prev, status: prev.status === 'done' ? 'done' : 'running', steps: Math.max(prev.steps, ev.n), intent: ev.intent, outcome: ev.outcome } },
-        feed: push(`${ev.runId.replace('run_', 'agent ')} #${ev.n} ${ev.intent ?? ''}`, bad ? 'bad' : 'ok'),
+        runs: { ...s.runs, [ev.runId]: { ...prev, status: prev.status === 'done' ? 'done' : 'running', steps: Math.max(prev.steps, ev.n), intent: ev.intent, outcome: ev.outcome, frames } },
+        feed: push(`agent ${agentNo(s, ev.runId)} · step ${ev.n} · ${ev.intent ?? ''}`, bad ? 'bad' : 'ok'),
       };
     }
     case 'finding': {
       if (s.findings.some((f) => f.id === ev.finding.id)) return { ...s, findings: s.findings.map((f) => f.id === ev.finding.id ? ev.finding : f) };
-      return { ...s, findings: [...s.findings, ev.finding], feed: push(`finding ${ev.finding.priority}: ${ev.finding.title}`, 'new') };
+      return { ...s, findings: [...s.findings, ev.finding], flash: { title: ev.finding.title, priority: ev.finding.priority, at: Date.now() }, feed: push(`finding ${ev.finding.priority}: ${ev.finding.title}`, 'new') };
     }
     case 'done':
       return { ...s, status: ev.status, live: false, feed: push(`scan ${ev.status}`, 'dim') };
@@ -65,10 +77,11 @@ export function ScanLive({
   const [s, dispatch] = useReducer(reduce, undefined, (): State => ({
     status: initialStatus,
     costUsd: initialCost,
-    runs: Object.fromEntries(initialRuns.map((r) => [r.id, { id: r.id, kind: r.kind, status: r.status, steps: 0, intent: null, outcome: null }])),
+    runs: Object.fromEntries(initialRuns.map((r) => [r.id, { id: r.id, kind: r.kind, status: r.status, steps: 0, intent: null, outcome: null, frames: [] }])),
     findings: initialFindings,
     feed: [],
     live: !TERMINAL.has(initialStatus),
+    flash: null,
   }));
 
   useEffect(() => {
@@ -120,7 +133,7 @@ export function ScanLive({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-3">
-              <h1 className="font-mono text-[20px] font-semibold tracking-tight text-ink-50">scan {scanId.replace('scn_', '#')}</h1>
+              <h1 className="font-mono text-[20px] font-semibold tracking-tight text-ink-50">scan {shortId(scanId)}</h1>
               <StatusPill status={s.status} />
               {s.live && <span className="font-mono text-[10px] tracking-widest text-lime">LIVE</span>}
             </div>
@@ -154,10 +167,13 @@ export function ScanLive({
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0 space-y-5">
+          {(s.live || runs.some((r) => r.frames.length > 0)) && (
+            <LiveView agents={runs.map((r) => ({ id: r.id, status: r.status, frames: r.frames }))} baseUrl={baseUrl} live={s.live} judging={s.live && runs.length > 0 && runs.every((r) => !['running', 'queued'].includes(r.status))} flash={s.flash} />
+          )}
           <section>
             <h2 className="label mb-2.5">agents · {runs.length}</h2>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {runs.map((r) => {
+              {runs.map((r, i) => {
                 const live = r.status === 'running' || r.status === 'queued';
                 return (
                   <Link key={r.id} href={`/runs/${r.id}`} className="panel group block overflow-hidden transition-colors hover:border-ink-500">
@@ -170,7 +186,7 @@ export function ScanLive({
                     </div>
                     <div className="space-y-1 p-3">
                       <div className="flex items-center justify-between font-mono text-[12px]">
-                        <span className="text-ink-50">{r.id.replace('run_', 'agent ')}</span>
+                        <span className="text-ink-50">agent {i + 1}</span>
                         <span className="tnum text-ink-300">{r.steps ? `step ${r.steps}` : r.status}</span>
                       </div>
                       <p className={`line-clamp-2 min-h-[2.5em] text-[12.5px] leading-snug ${r.outcome === 'error' ? 'text-p1' : 'text-ink-200'}`}>

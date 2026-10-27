@@ -45,7 +45,7 @@ const fail = (message: string) => ({
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const httpUrl = z.url().refine((u) => /^https?:$/.test(new URL(u).protocol), 'url must be http(s)');
+const httpUrl = z.url({ protocol: /^https?$/ });
 
 export const startScanInput = {
   url: httpUrl.optional().describe('Target URL (http/https). Provide url or environmentId.'),

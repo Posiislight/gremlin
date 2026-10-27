@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { FORCE_MOCK, getMetrics, listProjects, listScans } from '@/lib/api';
-import { formatUsd, relativeTime } from '@/lib/replay/format';
+import { formatUsd, relativeTime, shortId } from '@/lib/replay/format';
 import { MetricsPanel } from '@/components/MetricsPanel';
 import { NewScan } from '@/components/NewScan';
 import { SourceBadge, StatusPill } from '@/components/ui';
@@ -57,7 +57,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
                 {scans.data.map((s) => (
                   <li key={s.id}>
                     <Link href={`/scans/${s.id}`} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 px-4 py-3 transition-colors hover:bg-ink-800/60 sm:grid-cols-[110px_1fr_auto_auto_90px]">
-                      <span className="font-mono text-[12.5px] text-ink-50">{s.id.replace('scn_', '#')}</span>
+                      <span className="font-mono text-[12.5px] text-ink-50">{shortId(s.id)}</span>
                       <span className="order-last col-span-2 min-w-0 truncate font-mono text-[12px] text-ink-300 sm:order-none sm:col-span-1">{s.baseUrl}</span>
                       <span className="flex items-center gap-2 font-mono text-[11.5px]">
                         {s.p0 > 0 && <span className="text-p0">{s.p0} P0</span>}
