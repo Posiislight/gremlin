@@ -7,3 +7,4 @@ export * from './timeline.js';
 export * from './scenario.js';
 export * from './charter.js';
 export * from './cli.js';
+export * from './api.js';

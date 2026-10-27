@@ -63,16 +63,5 @@ export function scanRoutes(deps: { db: Db; queues: Queues }) {
       await queues.discovery.add('discover', { scanId });
       return reply.code(201).send({ scanId });
     });
-
-    app.get<{ Params: { id: string } }>('/v1/scans/:id', async (req, reply) => {
-      const [row] = await db
-        .select({ scan: scans })
-        .from(scans)
-        .innerJoin(environments, eq(scans.environmentId, environments.id))
-        .where(and(eq(scans.id, req.params.id), eq(environments.projectId, req.projectId)))
-        .limit(1);
-      if (!row) return reply.code(404).send({ error: 'not_found' });
-      return row.scan;
-    });
   };
 }

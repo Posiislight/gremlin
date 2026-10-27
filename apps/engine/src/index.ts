@@ -4,3 +4,5 @@ export { createQueues, closeQueues, QUEUE_NAMES, type Queues, type QueueName } f
 export { signFilePath } from './routes/files.js';
 export { processAgentJob, createUsageSink, type AgentJob, type AgentJobDeps } from './persist.js';
 export { startWorkers, contextsPerWorker, AgentJobData, type WorkerDeps, type Workers } from './worker.js';
+export { corsHeaders } from './cors.js';
+export { mcpRoutes, type McpDeps } from './mcp/index.js';
