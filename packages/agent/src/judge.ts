@@ -100,7 +100,9 @@ function renderObservation(o: Observation): string {
 }
 
 function shotsToImages(...shots: (Buffer | undefined)[]): { mime: string; base64: string }[] {
-  return shots.filter((b): b is Buffer => !!b && b.length > 0).map((b) => ({ mime: 'image/png', base64: b.toString('base64') }));
+  // The loop stores step screenshots as JPEG; label each image by its magic bytes so providers don't reject it.
+  const mimeOf = (b: Buffer) => (b[0] === 0xff && b[1] === 0xd8 ? 'image/jpeg' : 'image/png');
+  return shots.filter((b): b is Buffer => !!b && b.length > 0).map((b) => ({ mime: mimeOf(b), base64: b.toString('base64') }));
 }
 
 function isInvalidOutput(e: unknown): boolean {

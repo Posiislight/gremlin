@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><title>Engine cart fixture</title></head>
+<body>
+<main>
+  <h1>Shop</h1>
+  <a href="#cart" id="badge">Cart (0)</a>
+  <p>Kayak - 499 EUR</p>
+  <button type="button" id="add">Add to cart</button>
+  <p id="status"></p>
+</main>
+<script>
+  // A third-party-looking console error on load: the fake judge dismisses it as noise.
+  console.error('analytics beacon failed to initialise');
+  let count = 0;
+  document.getElementById('add').addEventListener('click', async () => {
+    count += 1;
+    document.getElementById('badge').textContent = 'Cart (' + count + ')';
+    // The server answers 500 from the second add on (count travels in the query, so the server is stateless).
+    const res = await fetch('/api/cart?n=' + count, { method: 'POST', body: JSON.stringify({ sku: 'kayak' }) });
+    document.getElementById('status').textContent = res.ok ? 'Saved' : 'Could not save cart';
+  });
+</script>
+</body></html>

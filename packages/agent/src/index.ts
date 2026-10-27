@@ -31,3 +31,5 @@ export { NAVIGATOR_SYSTEM, navigatorTool, buildNavigatorPrompt, PROMPT_LIMITS } 
 export type { PromptInput } from './prompts.js';
 export { runAgent, DEFAULT_BUDGETS, STUCK_AFTER } from './loop.js';
 export type { AgentEvent, AgentStatus, Expectation, RunAgentOpts, RunAgentResult } from './loop.js';
+export { judgeCandidate, judgeExpectation } from './judge.js';
+export type { JudgeLlm } from './judge.js';

@@ -1,5 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import {
+  boolean,
   doublePrecision,
   index,
   integer,
@@ -100,6 +101,8 @@ export const agentRuns = pgTable('agent_runs', {
   timelineKey: text('timeline_key'),
   tokens: integer('tokens').notNull().default(0),
   costUsd: doublePrecision('cost_usd').notNull().default(0),
+  /** Why the run ended in status 'error' (redacted, clipped). */
+  error: text('error'),
 });
 
 export const steps = pgTable('steps', {
@@ -117,6 +120,8 @@ export const steps = pgTable('steps', {
   screenshotKey: text('screenshot_key'),
   signalsJson: jsonb('signals_json').$type<Signal[]>(),
   reasoningSummary: text('reasoning_summary'),
+  outcome: text('outcome'),
+  error: text('error'),
 });
 
 export const findings = pgTable(
@@ -136,6 +141,14 @@ export const findings = pgTable(
     confirmJson: jsonb('confirm_json'),
     fixStatus: text('fix_status'),
     promptVariant: text('prompt_variant'),
+    /** Oracle that raised the first occurrence (crash, network, expectation, ...). */
+    oracle: text('oracle'),
+    /** Page URL of the first occurrence. */
+    url: text('url'),
+    /** True when the judge could not run (LLM outage): status stays 'new' and the candidate should be re-judged. */
+    unjudged: boolean('unjudged').notNull().default(false),
+    /** The judge verdict (JudgeVerdict) or, when unjudged, `{reason}`. */
+    verdictJson: jsonb('verdict_json'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('findings_project_signature_uq').on(t.projectId, t.signature)],

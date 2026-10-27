@@ -9,9 +9,12 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "start": "tsx src/main.ts"
+    "start": "tsx src/main.ts",
+    "scan:one": "tsx src/scripts/scan-one.ts",
+    "start:worker": "tsx src/worker-main.ts"
   },
   "dependencies": {
+    "@gremlin/agent": "workspace:*",
     "@gremlin/contract": "workspace:*",
     "@gremlin/db": "workspace:*",
     "@gremlin/llm": "workspace:*",

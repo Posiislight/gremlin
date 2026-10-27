@@ -193,6 +193,9 @@ importers:
 
   apps/engine:
     dependencies:
+      '@gremlin/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
       '@gremlin/contract':
         specifier: workspace:*
         version: link:../../packages/contract
